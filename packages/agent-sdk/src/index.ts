@@ -5,6 +5,7 @@ import {
   type ContextMessage,
   type EvtFrame,
   type Message,
+  type ReqFrame,
   type ResFrame,
   type SubscriptionFilters,
 } from '@agentlink/protocol';
@@ -263,7 +264,9 @@ export class Client {
     }
     this.reqSeq += 1;
     const id = `sdk${this.reqSeq}`;
-    const frame = { v: PROTOCOL_VERSION, kind: 'req' as const, id, op, data: data ?? {} };
+    // 显式标注成 protocol 包里的 ReqFrame：帧形状改了这里会**编译期**报错，
+    // 而不是等到运行时才炸（施工守则 §4：不许各写一份帧定义）。
+    const frame: ReqFrame = { v: PROTOCOL_VERSION, kind: 'req', id, op, data: data ?? {} };
     return new Promise<ResFrame>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
