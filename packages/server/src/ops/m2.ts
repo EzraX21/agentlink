@@ -12,17 +12,39 @@ import {
  * M2 的 op：message.send / message.get / message.revoke / history.fetch / context.fetch。
  */
 export function registerM2Handlers(handlers: HandlerMap): void {
-  const messageSend: Handler = (ctx) => {
+  const messageSend: Handler = async (ctx) => {
     const data = validateData('message.send', ctx.rawData);
     // 限流：30 条 / 60 秒（协议 §11）。超限回 RATE_LIMITED，不静默丢弃。
     ctx.services.limiter.assert(ctx.state.userId, 'message_send');
     // 引用附件必须存在且有权访问（M7）
     ctx.services.attachments.assertContentAttachments(data.content, ctx.state.userId);
+
+    // ---- M11 插件钩子 ----
+    // onMessageIn 返回 null 则丢弃（不入库、不推送）；onMessageOut 可改写内容。
+    const hookMsg = {
+      conv_id: data.conv_id,
+      sender_id: ctx.state.userId,
+      client_msg_id: data.client_msg_id,
+      content: data.content,
+    };
+    const afterIn = await ctx.services.hooks.onMessageIn(hookMsg);
+    if (afterIn === null) {
+      // 丢弃：不写库、不推事件。返回一个可辨识的结果让调用方能区分。
+      return {
+        message_id: '',
+        seq: 0,
+        client_msg_id: data.client_msg_id,
+        created_at: Date.now(),
+        dropped: true,
+      };
+    }
+    const afterOut = await ctx.services.hooks.onMessageOut(afterIn);
+
     const result = sendMessage(ctx.db, {
       convId: data.conv_id,
       senderId: ctx.state.userId,
       clientMsgId: data.client_msg_id,
-      content: data.content,
+      content: afterOut.content,
       replyTo: data.reply_to,
     });
 

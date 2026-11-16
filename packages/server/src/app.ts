@@ -21,6 +21,7 @@ import { registerM5Handlers } from './ops/m5.js';
 import { registerM8Handlers } from './ops/m8.js';
 import { fromEnv as rateLimiterFromEnv } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
+import { loadHooks, NOOP_HOOKS } from './hooks.js';
 import { startEventsCleanup } from './services/resume.js';
 import { StreamRegistry } from './services/stream.js';
 import { AgentLinkError, makeEvt } from '@agentlink/protocol';
@@ -153,7 +154,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     },
   });
 
-  services = { config, dbc, hub, auth, gateway, streams, limiter, attachments };
+  const hooks = config.hooksModule === null
+    ? NOOP_HOOKS
+    : ((await loadHooks(config.hooksModule, app.log)) ?? NOOP_HOOKS);
+
+  services = { config, dbc, hub, auth, gateway, streams, limiter, attachments, hooks };
 
   await app.register(healthRoutes);
   await app.register(async (instance) => {

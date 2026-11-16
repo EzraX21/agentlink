@@ -15,3 +15,4 @@
 | M8 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m8` 通过（54 项断言，验收 4） |
 | M9 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m9` 通过（37 项断言，验收 1 端到端） |
 | M10 | ✅ | 2026-11-17 | `node scripts/acceptance/run.mjs m10` 通过（45 项断言，验收 6，真实容器） |
+| M11 | ✅ | 2026-11-17 | `node scripts/acceptance/run.mjs m11` 通过（36 项断言） |
