@@ -4,6 +4,7 @@ import type { Hub } from '../hub.js';
 import type { AuthService } from '../auth/service.js';
 import type { WsGateway } from '../ws/gateway.js';
 import type { StreamRegistry } from './stream.js';
+import type { RateLimiter } from './ratelimit.js';
 
 /**
  * 服务端运行时依赖的集合。处理器从这里取，不各自 new。
@@ -15,4 +16,5 @@ export interface AppServices {
   readonly auth: AuthService;
   readonly gateway: WsGateway;
   readonly streams: StreamRegistry;
+  readonly limiter: RateLimiter;
 }

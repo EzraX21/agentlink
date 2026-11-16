@@ -14,6 +14,8 @@ import {
 export function registerM2Handlers(handlers: HandlerMap): void {
   const messageSend: Handler = (ctx) => {
     const data = validateData('message.send', ctx.rawData);
+    // 限流：30 条 / 60 秒（协议 §11）。超限回 RATE_LIMITED，不静默丢弃。
+    ctx.services.limiter.assert(ctx.state.userId, 'message_send');
     const result = sendMessage(ctx.db, {
       convId: data.conv_id,
       senderId: ctx.state.userId,

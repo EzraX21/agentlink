@@ -12,6 +12,8 @@ import type { StreamHooks } from '../services/stream.js';
 export function registerM4Handlers(handlers: HandlerMap, streams: StreamRegistry): void {
   const streamBegin: Handler = (ctx) => {
     const data = validateData('stream.begin', ctx.rawData);
+    // 限流：新建流式消息 5 条 / 60 秒（协议 §11）
+    ctx.services.limiter.assert(ctx.state.userId, 'stream_begin');
     const res = streams.begin({
       convId: data.conv_id,
       senderId: ctx.state.userId,
@@ -36,6 +38,8 @@ export function registerM4Handlers(handlers: HandlerMap, streams: StreamRegistry
 
   const streamDelta: Handler = (ctx) => {
     const data = validateData('stream.delta', ctx.rawData);
+    // 限流：流式 delta 200 帧 / 60 秒（协议 §11）
+    ctx.services.limiter.assert(ctx.state.userId, 'stream_delta');
     streams.appendDelta({
       convId: data.conv_id,
       messageId: data.message_id,

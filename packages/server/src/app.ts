@@ -15,6 +15,8 @@ import { registerM1Handlers } from './ops/m1.js';
 import { registerM2Handlers } from './ops/m2.js';
 import { registerM3Handlers } from './ops/m3.js';
 import { registerM4Handlers, makeStreamHooks } from './ops/m4.js';
+import { registerM5Handlers } from './ops/m5.js';
+import { RateLimiter } from './services/ratelimit.js';
 import { startEventsCleanup } from './services/resume.js';
 import { StreamRegistry } from './services/stream.js';
 import { AgentLinkError, makeEvt } from '@agentlink/protocol';
@@ -94,6 +96,9 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   registerM4Handlers(handlers, streams);
 
+  const limiter = new RateLimiter();
+  registerM5Handlers(handlers, limiter);
+
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
   const recovered = streams.recoverStaleOnBoot();
   if (recovered.finalized > 0 || recovered.deleted > 0) {
@@ -142,7 +147,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     },
   });
 
-  services = { config, dbc, hub, auth, gateway, streams };
+  services = { config, dbc, hub, auth, gateway, streams, limiter };
 
   await app.register(healthRoutes);
   await app.register(async (instance) => {
