@@ -203,7 +203,14 @@ async function runOne(name) {
       await handle.start(mod.serverEnv ?? {});
       started = true;
     }
+    const { resetCounters, counters } = await import('./_assert.mjs');
+    resetCounters();
     await mod.run(ctx);
+    const { failed } = counters();
+    if (failed > 0) {
+      // 断言失败与抛异常同等对待：没跑通就是没跑通（施工守则 §4）
+      throw new Error(`${failed} 项断言失败`);
+    }
   } catch (err) {
     log(`\n\x1b[31m${name} 抛出异常\x1b[0m: ${err.message}`);
     if (handle.logs) {

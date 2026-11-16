@@ -110,3 +110,10 @@ export function summary(name) {
 export function counters() {
   return { passed, failed };
 }
+
+/** 每轮验收开始时清零，避免上一轮的失败污染下一轮的判定。 */
+export function resetCounters() {
+  passed = 0;
+  failed = 0;
+  failures.length = 0;
+}

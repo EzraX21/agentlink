@@ -12,6 +12,7 @@ import { Hub } from './hub.js';
 import type { AppServices } from './services/index.js';
 import { makeHandlers, validateData, type HandlerMap } from './ops/dispatch.js';
 import { registerM1Handlers } from './ops/m1.js';
+import { registerM2Handlers } from './ops/m2.js';
 import { AgentLinkError } from '@agentlink/protocol';
 
 export interface AppOptions {
@@ -57,6 +58,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   const handlers: HandlerMap = makeHandlers();
   registerM1Handlers(handlers);
+  registerM2Handlers(handlers);
 
   let services: AppServices;
 

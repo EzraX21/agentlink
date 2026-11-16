@@ -271,6 +271,19 @@ export function listMyConvIds(db: Db, userId: string): string[] {
     .map((r) => r.convId);
 }
 
+/** 成员 + 展示名，用于 @ 提及判定（`only_mentions` 订阅）。 */
+export function listMemberCandidates(
+  db: Db,
+  convId: string,
+): Array<{ id: string; displayName: string }> {
+  return db
+    .select({ id: users.id, displayName: users.displayName })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(eq(memberships.convId, convId))
+    .all();
+}
+
 export function listMemberUserIds(db: Db, convId: string): string[] {
   return db
     .select({ userId: memberships.userId })
