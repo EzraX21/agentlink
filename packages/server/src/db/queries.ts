@@ -589,6 +589,34 @@ export function findAttachmentBySha(db: Db, sha256: string): AttachmentRow | und
   return db.select().from(attachments).where(eq(attachments.sha256, sha256)).get();
 }
 
+/**
+ * 哪些会话里的消息引用了这个附件（附件下载的权限判定用）。
+ * content_json 里出现 attachment_id 即视为引用；LIKE 足够，附件引用是低频查询。
+ */
+export function listConvsReferencingAttachment(
+  db: Db,
+  attachmentId: string,
+): Array<{ convId: string }> {
+  const rows = db.all<{ conv_id: string }>(sql`
+    SELECT DISTINCT conv_id FROM messages
+    WHERE content_json LIKE '%' || ${attachmentId} || '%'
+    LIMIT 100
+  `);
+  return rows.map((r) => ({ convId: r.conv_id }));
+}
+
+export function countAttachments(db: Db, sha256?: string): number {
+  const row =
+    sha256 === undefined
+      ? db.select({ n: sql<number>`count(*)` }).from(attachments).get()
+      : db
+          .select({ n: sql<number>`count(*)` })
+          .from(attachments)
+          .where(eq(attachments.sha256, sha256))
+          .get();
+  return row?.n ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // 事务
 // ---------------------------------------------------------------------------

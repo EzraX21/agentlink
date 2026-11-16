@@ -11,3 +11,4 @@
 | M4 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m4` 通过（90 项断言，验收 1 的协议侧） |
 | M5 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m5` 通过（51 项断言，验收 2） |
 | M6 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m6` 通过（58 项断言 + 5 个渲染测试，验收 5） |
+| M7 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m7` 通过（30 项断言） |

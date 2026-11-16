@@ -6,6 +6,7 @@ import { loggerOptions } from './logger.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { registerStatic } from './routes/static.js';
+import { attachmentRoutes } from './routes/attachments.js';
 import { WsGateway, type Connection } from './ws/gateway.js';
 import { openDatabase, type OpenedDb } from './db/index.js';
 import { AuthService } from './auth/service.js';
@@ -18,6 +19,7 @@ import { registerM3Handlers } from './ops/m3.js';
 import { registerM4Handlers, makeStreamHooks } from './ops/m4.js';
 import { registerM5Handlers } from './ops/m5.js';
 import { RateLimiter } from './services/ratelimit.js';
+import { AttachmentService } from './services/attachments.js';
 import { startEventsCleanup } from './services/resume.js';
 import { StreamRegistry } from './services/stream.js';
 import { AgentLinkError, makeEvt } from '@agentlink/protocol';
@@ -98,6 +100,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   registerM4Handlers(handlers, streams);
 
   const limiter = new RateLimiter();
+  const attachments = new AttachmentService(dbc.db, config.uploadsDir);
   registerM5Handlers(handlers, limiter);
 
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
@@ -148,11 +151,14 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     },
   });
 
-  services = { config, dbc, hub, auth, gateway, streams, limiter };
+  services = { config, dbc, hub, auth, gateway, streams, limiter, attachments };
 
   await app.register(healthRoutes);
   await app.register(async (instance) => {
     await authRoutes(instance, services);
+  });
+  await app.register(async (instance) => {
+    await attachmentRoutes(instance, services);
   });
 
   await registerStatic(app, config.publicDir);
