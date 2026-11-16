@@ -18,6 +18,7 @@ import { registerM2Handlers } from './ops/m2.js';
 import { registerM3Handlers } from './ops/m3.js';
 import { registerM4Handlers, makeStreamHooks } from './ops/m4.js';
 import { registerM5Handlers } from './ops/m5.js';
+import { registerM8Handlers } from './ops/m8.js';
 import { RateLimiter } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
 import { startEventsCleanup } from './services/resume.js';
@@ -102,6 +103,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   const limiter = new RateLimiter();
   const attachments = new AttachmentService(dbc.db, config.uploadsDir);
   registerM5Handlers(handlers, limiter);
+  registerM8Handlers(handlers);
 
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
   const recovered = streams.recoverStaleOnBoot();
