@@ -18,16 +18,9 @@ import type { Config } from '../config.js';
 /**
  * WS 网关（协议 §1、§2、§12）。
  *
- * M0 只做信封层：帧大小、版本、未知 op、未认证拒绝。
- * 认证与 op 分发在 M1 起接入。
+ * 只负责信封层：帧大小、版本、未认证拒绝、分发与错误转换。
+ * 具体 op 由 `dispatch` 处理，这样网关不认识任何业务概念。
  */
-
-export interface OpContext {
-  readonly conn: Connection;
-  readonly frame: ReqFrame;
-}
-
-export type OpHandler = (ctx: OpContext) => Promise<unknown> | unknown;
 
 export class Connection {
   readonly id: string;
@@ -35,6 +28,9 @@ export class Connection {
   /** 认证后填充（M1）。 */
   userId: string | null = null;
   authed = false;
+  authKind: 'human' | 'agent' | null = null;
+  /** 每连接自定义的清理回调（订阅、流式上下文等）。 */
+  readonly cleanups = new Set<() => void>();
 
   constructor(id: string, ws: WebSocket) {
     this.id = id;
@@ -59,13 +55,14 @@ export class Connection {
 export interface GatewayOptions {
   readonly config: Config;
   readonly app: FastifyInstance;
-  /** op 名 → 处理函数。未注册的 op 回 UNSUPPORTED_OP。 */
-  readonly handlers: ReadonlyMap<string, OpHandler>;
+  /** 分发一个已通过信封校验的 req。抛 AgentLinkError 会被转成 res.ok=false。 */
+  readonly dispatch: (conn: Connection, frame: ReqFrame) => Promise<unknown>;
+  /** 该 op 是否要求已认证。默认除 auth 外都要求。 */
+  readonly requiresAuth?: (op: string) => boolean;
   readonly onConnect?: (conn: Connection) => void;
   readonly onClose?: (conn: Connection) => void;
   /** 连接建立后、认证前的兜底超时（协议 §2：5 秒）。 */
   readonly authTimeoutMs?: number;
-  readonly requiresAuth?: (op: string) => boolean;
 }
 
 export class WsGateway {
@@ -77,7 +74,7 @@ export class WsGateway {
     this.wss = new WebSocketServer({
       noServer: true,
       maxPayload: MAX_FRAME_BYTES,
-      // 协议 §1：只接受 JSON 文本帧；子协议 agentlink.v1 可选（浏览器不方便设置时也接受）
+      // 协议 §1 + 施工守则 §7：声明 agentlink.v1 时回显，不声明也接受。
       handleProtocols: (protocols) => (protocols.has(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : false),
     });
   }
@@ -114,12 +111,20 @@ export class WsGateway {
 
       ws.on('close', () => {
         clearTimeout(authTimer);
+        for (const fn of conn.cleanups) {
+          try {
+            fn();
+          } catch {
+            /* 清理失败不影响其他清理 */
+          }
+        }
+        conn.cleanups.clear();
         this.conns.delete(conn);
         this.opts.onClose?.(conn);
       });
 
       ws.on('error', () => {
-        // 底层错误一律以 close 收尾，不额外处理
+        // 底层错误一律以 close 收尾
       });
     });
   }
@@ -127,9 +132,7 @@ export class WsGateway {
   private async handleMessage(conn: Connection, raw: Buffer, isBinary: boolean): Promise<void> {
     if (isBinary) {
       // 第一版不用二进制帧（协议 §1）
-      conn.send(
-        makeResErr('', { code: 'VALIDATION_FAILED', message: '只接受 JSON 文本帧' }),
-      );
+      conn.send(makeResErr('', { code: 'VALIDATION_FAILED', message: '只接受 JSON 文本帧' }));
       return;
     }
     if (raw.byteLength > MAX_FRAME_BYTES) {
@@ -175,34 +178,28 @@ export class WsGateway {
     }
 
     const frame = parsed.frame;
-    const handler = this.opts.handlers.get(frame.op);
-    if (!handler) {
-      // 协议 §12：未知 op 回 UNSUPPORTED_OP，**不断开连接**
-      conn.send(
-        makeResErr(frame.id, {
-          code: 'UNSUPPORTED_OP',
-          message: `不支持的操作 ${frame.op}`,
-          details: { op: frame.op },
-        }),
-      );
-      return;
-    }
-
-    const requiresAuth = this.opts.requiresAuth?.(frame.op) ?? true;
+    const requiresAuth = this.opts.requiresAuth?.(frame.op) ?? frame.op !== 'auth';
     if (requiresAuth && !conn.authed) {
       conn.send(makeResErr(frame.id, { code: 'AUTH_REQUIRED', message: '请先发送 auth 帧' }));
       return;
     }
 
     try {
-      const data = await handler({ conn, frame });
+      const data = await this.opts.dispatch(conn, frame);
       conn.send({ v: PROTOCOL_VERSION, kind: 'res', id: frame.id, ok: true, data });
     } catch (err) {
+      if (!(err instanceof AgentLinkError)) {
+        this.opts.app.log.error({ err, op: frame.op }, 'op 处理异常');
+      }
       conn.send(makeResErr(frame.id, toProtocolError(err)));
+      if (frame.op === 'auth') {
+        // 协议 §2：认证失败 → 回 error 响应，服务端 close(1008)
+        conn.close(1008, 'auth failed');
+      }
     }
   }
 
-  /** 向所有已认证连接广播（后续里程碑用）。 */
+  /** 向所有已认证连接广播。 */
   broadcast(frame: unknown, filter?: (conn: Connection) => boolean): number {
     let n = 0;
     for (const conn of this.conns) {
@@ -216,6 +213,18 @@ export class WsGateway {
 
   get connections(): readonly Connection[] {
     return [...this.conns];
+  }
+
+  /** 关闭某个用户的全部连接（轮换 token / 停用 agent 时用）。 */
+  closeUserConnections(userId: string, code = 1008, reason = 'token rotated'): number {
+    let n = 0;
+    for (const conn of this.conns) {
+      if (conn.userId === userId) {
+        conn.close(code, reason);
+        n += 1;
+      }
+    }
+    return n;
   }
 
   async close(): Promise<void> {

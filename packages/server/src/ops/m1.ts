@@ -1,0 +1,107 @@
+import { AgentLinkError } from '@agentlink/protocol';
+import { validateData, type Handler, type HandlerMap } from './dispatch.js';
+import {
+  createConversation,
+  getConversation,
+  listConversations,
+  updateGroup,
+} from '../services/conversations.js';
+import { requireRole } from '../permissions.js';
+import { findUserById, insertAudit } from '../db/queries.js';
+import { newId, nowMs } from '../ids.js';
+
+/**
+ * M1 的 op：auth / ping / subscribe.set / conv.* / group.update。
+ * 消息与流式在 M2、M4 追加。
+ */
+export function registerM1Handlers(handlers: HandlerMap): void {
+  const auth: Handler = async (ctx) => {
+    const data = validateData('auth', ctx.rawData);
+    const identity = await ctx.auth.authenticate(data.token);
+
+    const user = findUserById(ctx.db, identity.userId);
+    if (!user) throw new AgentLinkError('AUTH_INVALID', '账号不存在');
+
+    // 一个连接对应一个身份；切换身份必须重连（协议 §2.4）
+    ctx.state.userId = user.id;
+    ctx.state.kind = user.kind;
+    ctx.conn.userId = user.id;
+    ctx.conn.authed = true;
+    ctx.conn.authKind = user.kind;
+
+    return {
+      protocol: 1 as const,
+      self: {
+        id: user.id,
+        kind: user.kind,
+        display_name: user.displayName,
+        tenant_id: user.tenantId,
+      },
+      server_time: nowMs(),
+    };
+  };
+
+  const ping: Handler = () => ({ server_time: nowMs() });
+
+  const subscribeSet: Handler = (ctx) => {
+    const data = validateData('subscribe.set', ctx.rawData);
+    ctx.hub.setFilters(ctx.conn.id, data.filters);
+    return { applied: true as const };
+  };
+
+  const convList: Handler = (ctx) => {
+    const data = validateData('conv.list', ctx.rawData);
+    return listConversations(ctx.db, ctx.state.userId, data.limit ?? 50, data.cursor);
+  };
+
+  const convCreate: Handler = (ctx) => {
+    const data = validateData('conv.create', ctx.rawData);
+    const conv = createConversation(ctx.db, {
+      kind: data.kind,
+      title: data.title,
+      memberIds: data.member_ids,
+      creatorId: ctx.state.userId,
+    });
+    return { conv };
+  };
+
+  const convGet: Handler = (ctx) => {
+    const data = validateData('conv.get', ctx.rawData);
+    return getConversation(ctx.db, data.conv_id, ctx.state.userId);
+  };
+
+  const groupUpdate: Handler = (ctx) => {
+    const data = validateData('group.update', ctx.rawData);
+    requireRole(ctx.db, data.conv_id, ctx.state.userId, 'group.update');
+
+    const conv = updateGroup(ctx.db, data.conv_id, {
+      title: data.title,
+      announcement: data.announcement,
+    });
+
+    // 审计只写成功动作（施工守则 §8）
+    insertAudit(ctx.db, {
+      id: newId('e'),
+      tenantId: 'default',
+      actorId: ctx.state.userId,
+      action: 'group.update',
+      targetType: 'group',
+      targetId: data.conv_id,
+      detail: JSON.stringify({
+        ...(data.title === undefined ? {} : { title: data.title }),
+        ...(data.announcement === undefined ? {} : { announcement: data.announcement }),
+      }),
+      createdAt: nowMs(),
+    });
+
+    return { conv };
+  };
+
+  handlers.set('auth', auth);
+  handlers.set('ping', ping);
+  handlers.set('subscribe.set', subscribeSet);
+  handlers.set('conv.list', convList);
+  handlers.set('conv.create', convCreate);
+  handlers.set('conv.get', convGet);
+  handlers.set('group.update', groupUpdate);
+}
