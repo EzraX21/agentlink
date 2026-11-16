@@ -1,18 +1,57 @@
 # 进度
 
-每个里程碑一行。验收脚本没跑通的不许写进来。
+每个里程碑一行。**验收脚本没跑通的不许写进来**（施工守则 §4）。
 
-| 里程碑 | 状态 | 日期 | 验收 |
+最后更新：2026-11-17，`./scripts/verify.sh` 全绿（12/12 里程碑）。
+
+## 里程碑
+
+| 里程碑 | 状态 | 日期 | 验收脚本 | 断言数 |
+|---|---|---|---|---|
+| M0 骨架与协议包 | ✅ | 2026-11-16 | `run.mjs m0` | 16 |
+| M1 认证与会话 | ✅ | 2026-11-16 | `run.mjs m1` | 55 |
+| M2 消息与 seq | ✅ | 2026-11-16 | `run.mjs m2` | 166 |
+| M3 断线补齐 | ✅ | 2026-11-16 | `run.mjs m3` | 40 |
+| M4 流式协议 | ✅ | 2026-11-16 | `run.mjs m4` | 90 |
+| M5 群管理与审计 | ✅ | 2026-11-16 | `run.mjs m5` | 51 |
+| M6 Web 客户端 | ✅ | 2026-11-16 | `run.mjs m6` | 58 + 5 渲染测试 |
+| M7 附件 | ✅ | 2026-11-16 | `run.mjs m7` | 30 |
+| M8 检索 | ✅ | 2026-11-16 | `run.mjs m8` | 54 |
+| M9 Agent SDK + 示例 agent | ✅ | 2026-11-16 | `run.mjs m9` | 37 |
+| M10 Docker 部署 | ✅ | 2026-11-17 | `run.mjs m10` | 47（真实容器） |
+| M11 插件钩子与多实例 | ✅ | 2026-11-17 | `run.mjs m11` | 36 |
+
+## 六条验收标准
+
+| # | 验收标准（需求确认书 §7） | 落点 | 怎么证明 |
 |---|---|---|---|
-| M0 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m0` 通过（16 项断言） |
-| M1 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m1` 通过（55 项断言） |
-| M2 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m2` 通过（166 项断言） |
-| M3 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m3` 通过（40 项断言，验收 3） |
-| M4 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m4` 通过（90 项断言，验收 1 的协议侧） |
-| M5 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m5` 通过（51 项断言，验收 2） |
-| M6 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m6` 通过（58 项断言 + 5 个渲染测试，验收 5） |
-| M7 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m7` 通过（30 项断言） |
-| M8 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m8` 通过（54 项断言，验收 4） |
-| M9 | ✅ | 2026-11-16 | `node scripts/acceptance/run.mjs m9` 通过（37 项断言，验收 1 端到端） |
-| M10 | ✅ | 2026-11-17 | `node scripts/acceptance/run.mjs m10` 通过（45 项断言，验收 6，真实容器） |
-| M11 | ✅ | 2026-11-17 | `node scripts/acceptance/run.mjs m11` 通过（36 项断言） |
+| 1 | 两个浏览器窗 + 一个 agent 同群：@agent 后 3 秒内出现逐字增长的流式回复 | M4 / M9 | `m9` 真跑 `examples/echo-agent`，断言流式消息 < 3000ms 出现、观察到 ≥3 个不同文本长度且严格递增 |
+| 2 | agent 禁言某成员成功，动作出现在审计日志 | M5 | `m5` 断言 agent（admin 角色）踢人成功、`audit_logs` 有对应行且 `actor_id` 是 agent；失败动作不写审计 |
+| 3 | 杀掉 agent 进程 1 分钟再启动，凭 `last_seq` 拿回离线期间全部消息 | M3 / M9 | `m3` 断言 `resume` 补发 21..25、`replayed=5`、`gap=false`；`m9` 真 kill -9 服务端后 agent 自动重连并 resume |
+| 4 | 检索能按关键词 + 时间范围 + 发送者组合查回 | M8 | `m8` 断言四者组合精确命中；1 万条下查询 6.5–60.5ms（< 500ms） |
+| 5 | WebUI 能建群、拉人、停用 agent，操作立即生效 | M1 / M6 | `m6` 断言 store 状态逻辑 + jsdom 渲染；`m1` 断言 agent 停用/轮换 token 立即断开连接 |
+| 6 | `docker compose up` 从零起服务，刷新可用，重启不丢数据 | M10 | `m10` 真跑容器栈：`down -v` → `up` → 经 Caddy 访问 → `restart` 后数据仍在 |
+
+## 怎么重跑
+
+```bash
+export XDG_RUNTIME_DIR="$PWD/../.runtime"
+./scripts/verify.sh              # 构建 + 类型 + 单测 + 全部 12 个里程碑
+./scripts/verify.sh --no-docker  # 跳过 M10（本机没有 Docker 时）
+```
+
+单个里程碑：
+
+```bash
+node scripts/acceptance/run.mjs m4
+```
+
+## 已知限制
+
+- **M6 的浏览器验证是分层的**：本机 snap 版 Firefox 在只读 HOME 下起不来，所以 GUI
+  用两层证据代替端到端浏览器截图 —— (a) 真实 store 逻辑在 Node 里驱动（`_webstore_probe.ts`），
+  (b) 组件在 jsdom 里真实渲染（5 项 Vitest）。像素级外观没有自动化回归。
+- **M9 的 `examples/llm-agent`** 只在"未配置 `LLM_API_KEY` 时退化成回显"的路径上被验证过；
+  真实 LLM 调用需要外部 API key，不在验收范围内（实现计划把 M9 的这一项标为"可选"）。
+- **M11 的钩子** 只覆盖 `onMessageIn` / `onMessageOut` 两个点。没有钩子的热重载、沙箱或
+  权限隔离 —— 钩子是**可信代码**，与服务器同权限运行。

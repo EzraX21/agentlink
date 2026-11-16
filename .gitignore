@@ -11,3 +11,7 @@ uploads/
 .DS_Store
 .turbo/
 coverage/
+
+# 验收/开发用的临时目录
+.scratch/
+.runtime/

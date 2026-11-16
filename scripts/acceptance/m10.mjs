@@ -24,16 +24,30 @@ export const needsServer = false;
 
 const HTTP_PORT = Number(process.env.M10_HTTP_PORT ?? 8088);
 
+let REPO_ROOT = '.';
+
+/**
+ * compose 的 `:?` 必填变量**对所有子命令**都生效，包括 `ps` / `down` 这种只读命令。
+ * 所以任何 docker compose 调用都必须带上这两个密钥，否则会报
+ * "required variable JWT_SECRET is missing a value"。
+ */
+const COMPOSE_SECRETS = {
+  JWT_SECRET: 'm10-acceptance-jwt-secret-0123456789abcdef0123456789',
+  AGENT_TOKEN_PEPPER: 'm10-acceptance-pepper-0123456789ab',
+};
+
 async function docker(args, opts = {}) {
   const env = {
     ...process.env,
+    ...COMPOSE_SECRETS,
     DOCKER_CONFIG:
-      process.env.DOCKER_CONFIG ??
-      path.resolve(process.env.M10_REPO_ROOT ?? '.', '../.runtime/docker'),
+      process.env.DOCKER_CONFIG ?? path.resolve(REPO_ROOT, '../.runtime/docker'),
   };
   try {
     const { stdout, stderr } = await exec('docker', args, {
       env,
+      // compose 子命令必须在仓库根执行，否则找不到 docker-compose.yml
+      cwd: REPO_ROOT,
       timeout: opts.timeout ?? 120_000,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -90,6 +104,7 @@ async function waitForStatus(url, opts, wantStatus, timeoutMs = 90_000) {
 
 export async function run(ctx) {
   const repoRoot = ctx.repoRoot;
+  REPO_ROOT = repoRoot;
 
   section('M10.0 Docker 可用性');
   const info = await docker(['info'], { timeout: 30_000 });
@@ -145,14 +160,19 @@ export async function run(ctx) {
   section('M10.3 docker compose up 起服务');
   const composeEnv = {
     ...process.env,
-    JWT_SECRET: 'm10-acceptance-jwt-secret-0123456789abcdef0123456789',
-    AGENT_TOKEN_PEPPER: 'm10-acceptance-pepper-0123456789ab',
+    ...COMPOSE_SECRETS,
     HTTP_PORT: String(HTTP_PORT),
     DOCKER_CONFIG: process.env.DOCKER_CONFIG ?? path.resolve(repoRoot, '../.runtime/docker'),
   };
 
-  const downFirst = await docker(['compose', 'down', '-v'], { timeout: 120_000 });
-  void downFirst;
+  // 从零起服务（验收 6 的原话）：先彻底拆掉上一次的容器与命名卷，
+  // 否则上一次留下的用户/消息会让"注册新用户"返回 409，验收变成不可重跑。
+  const downFirst = await docker(['compose', 'down', '-v'], { timeout: 180_000 });
+  if (!downFirst.ok && !/no such|not found/i.test(downFirst.stderr)) {
+    console.log(`  （down -v 返回: ${downFirst.stderr.split('\n')[0]}）`);
+  }
+  const psAfterDown = await docker(['compose', 'ps', '--format', '{{.Name}}']);
+  eq((psAfterDown.stdout ?? '').trim(), '', 'down -v 后没有残留容器（从零开始）');
 
   const up = await exec('docker', ['compose', 'up', '-d', '--no-build'], {
     cwd: repoRoot,
@@ -188,11 +208,12 @@ export async function run(ctx) {
     gte(js.length, 1000, `产物大小 ${js.length} 字节`);
   }
 
+  const username = `dockertest_${Date.now().toString(36)}`;
   const reg = await fetch(`http://127.0.0.1:${HTTP_PORT}/api/auth/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      username: 'dockertest',
+      username,
       display_name: '容器用户',
       password: 'docker-password-123',
     }),
@@ -204,7 +225,7 @@ export async function run(ctx) {
   const login = await fetch(`http://127.0.0.1:${HTTP_PORT}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'dockertest', password: 'docker-password-123' }),
+    body: JSON.stringify({ username, password: 'docker-password-123' }),
   });
   eq(login.status, 200, '登录 → 200');
   const loginBody = await login.json();
@@ -227,7 +248,12 @@ export async function run(ctx) {
   eq(sent.ok, true, '容器内发消息成功');
   const history = await client.request('history.fetch', { conv_id: convId, limit: 10 });
   eq(history.ok, true, '容器内能读回历史');
-  eq(history.data.messages.length, 1, '历史里有 1 条消息');
+  eq(history.data.messages.length, 1, '新建的群里恰好 1 条消息');
+  eq(
+    history.data.messages[0]?.content?.[0]?.text,
+    '来自容器的一条消息',
+    '读回的就是刚发的那条',
+  );
   client.close();
 
   section('M10.5 docker compose restart → 数据还在');
@@ -249,7 +275,7 @@ export async function run(ctx) {
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username: 'dockertest', password: 'docker-password-123' }),
+      body: JSON.stringify({ username, password: 'docker-password-123' }),
     },
     200,
   );

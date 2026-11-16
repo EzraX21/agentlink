@@ -182,3 +182,40 @@ END;
 
 **验收覆盖**：`m9.mjs` 的 M9.5 要求出现**第二次** `resume 完成`（用出现次数判定，
 不是 includes —— 否则首次连接的日志会让断言假阳）。
+
+---
+
+## 2026-11-17 · 部署相关的两个坑
+
+**Caddy 不能"直接回" `/healthz`**
+
+`Caddyfile` 里最初写了 `respond /healthz 200`，看起来更省一次反代。但协议 §1 要求
+`/healthz` 返回 `{"ok":true}`，而 `respond` 只回空 body —— 任何按 JSON 断言的探活
+（以及 M10 验收）都会失败。改为透传给后端。Docker 的 `HEALTHCHECK` 打的是容器内端口，
+不经过 Caddy，所以它一直是对的，问题只在外部路径上。
+
+**容器里 `/app` 的属主**
+
+镜像最后 `USER node`，但前面 `COPY` 进来的文件属主是 root，`node` 用户读不了自己的
+`package.json`，启动直接 `ERR_INVALID_PACKAGE_CONFIG: permission denied`。
+修法是在 `USER node` 之前 `chown -R node:node /app /data`。
+
+**`docker compose` 的 `:?` 必填变量对所有子命令生效**
+
+`compose` 里的 `JWT_SECRET: ${JWT_SECRET:?…}` 不只影响 `up`：`docker compose ps`、
+`down` 这种只读命令同样会因变量缺失而报错。所以验收脚本里**每一次** compose 调用
+都要带上这两个密钥，不能只在 `up` 时带。
+
+---
+
+## 2026-11-17 · 验收脚本必须可重复运行
+
+**问题**：M10 第一次在 `verify.sh` 里跑挂了，报"注册新用户 → 409"。原因是上一次验收
+留下的容器与命名卷还在，用户已存在。
+
+**选择**：
+1. 每次验收先 `docker compose down -v`，并断言 `compose ps` 为空（真的从零开始）；
+2. 用户名带上时间戳后缀（双保险）。
+
+**理由**：验收标准第 6 条的原话就是"`docker compose up` **从零**起服务"。如果脚本
+依赖上一次的残留状态，它证明不了这句话。可重复运行是验收脚本的基本要求。
