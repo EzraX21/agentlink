@@ -1,1 +1,198 @@
 @import 'tailwindcss';
+
+/*
+ * 主题 token（需求确认书 §10.3：两套主题靠 CSS 变量切换）。
+ * 视觉参照 Telegram Desktop 的布局、配色、圆角、间距 —— 不复用它的代码与品牌资源。
+ */
+:root {
+  --al-bg: #ffffff;
+  --al-bg-sidebar: #ffffff;
+  --al-bg-chat: #e7ebf0;
+  --al-bg-hover: #f1f3f6;
+  --al-bg-active: #e8f0fe;
+  --al-bubble-self: #eeffde;
+  --al-bubble-other: #ffffff;
+  --al-text: #17212b;
+  --al-text-muted: #707579;
+  --al-border: #e3e7ec;
+  --al-primary: #3390ec;
+  --al-primary-hover: #2b7fd1;
+  --al-danger: #e53935;
+  --al-radius: 12px;
+  --al-radius-bubble: 12px;
+}
+
+:root[data-theme='dark'] {
+  --al-bg: #17212b;
+  --al-bg-sidebar: #17212b;
+  --al-bg-chat: #0e1621;
+  --al-bg-hover: #202b36;
+  --al-bg-active: #2b5278;
+  --al-bubble-self: #2b5278;
+  --al-bubble-other: #182533;
+  --al-text: #f5f5f5;
+  --al-text-muted: #8b9aa8;
+  --al-border: #101921;
+  --al-primary: #5288c1;
+  --al-primary-hover: #6d9dd1;
+  --al-danger: #ef5350;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--al-bg);
+  color: var(--al-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 滚动条：与主题一致，不抢眼 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--al-text-muted) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--al-text-muted) 40%, transparent);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  .al-sidebar {
+    background: var(--al-bg-sidebar);
+    border-right: 1px solid var(--al-border);
+  }
+  .al-chat-bg {
+    background: var(--al-bg-chat);
+  }
+  .al-conv-item {
+    display: flex;
+    gap: 10px;
+    padding: 9px 12px;
+    cursor: pointer;
+    border-radius: 10px;
+    margin: 1px 6px;
+    transition: background 120ms ease;
+  }
+  .al-conv-item:hover {
+    background: var(--al-bg-hover);
+  }
+  .al-conv-item[data-active='true'] {
+    background: var(--al-bg-active);
+  }
+  .al-bubble {
+    max-width: min(560px, 78%);
+    padding: 7px 11px;
+    border-radius: var(--al-radius-bubble);
+    word-break: break-word;
+    white-space: pre-wrap;
+    box-shadow: 0 1px 1px rgb(0 0 0 / 6%);
+    position: relative;
+  }
+  .al-bubble-self {
+    background: var(--al-bubble-self);
+    border-bottom-right-radius: 4px;
+  }
+  .al-bubble-other {
+    background: var(--al-bubble-other);
+    border-bottom-left-radius: 4px;
+  }
+  .al-input {
+    background: var(--al-bg);
+    color: var(--al-text);
+    border: 1px solid var(--al-border);
+    border-radius: 8px;
+    padding: 8px 11px;
+    width: 100%;
+    outline: none;
+  }
+  .al-input:focus {
+    border-color: var(--al-primary);
+  }
+  .al-btn {
+    background: var(--al-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .al-btn:hover {
+    background: var(--al-primary-hover);
+  }
+  .al-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .al-btn-ghost {
+    background: transparent;
+    color: var(--al-text);
+    border: 1px solid var(--al-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .al-btn-ghost:hover {
+    background: var(--al-bg-hover);
+  }
+  .al-muted {
+    color: var(--al-text-muted);
+  }
+  .al-panel {
+    background: var(--al-bg-sidebar);
+    border-left: 1px solid var(--al-border);
+  }
+  .al-card {
+    background: var(--al-bg-sidebar);
+    border: 1px solid var(--al-border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .al-badge {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--al-bg-hover);
+    color: var(--al-text-muted);
+  }
+  .al-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    color: #fff;
+    flex: 0 0 auto;
+    font-size: 15px;
+    user-select: none;
+  }
+  .al-streaming::after {
+    content: '▍';
+    animation: al-blink 1s steps(2, start) infinite;
+    opacity: 0.7;
+  }
+}
+
+@keyframes al-blink {
+  to {
+    visibility: hidden;
+  }
+}

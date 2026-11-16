@@ -49,6 +49,8 @@ export function registerM5Handlers(handlers: HandlerMap, limiter: RateLimiter): 
       data: { conv_id: data.conv_id, user_id: data.user_id, reason: 'kicked' },
       seq: res.seq,
       convId: data.conv_id,
+      // 被踢的人已经不在成员表里，必须强制推给他，否则他的客户端不知道
+      forceUserIds: [data.user_id],
     });
     return { ok: true as const };
   };

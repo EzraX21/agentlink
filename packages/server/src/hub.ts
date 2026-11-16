@@ -29,6 +29,13 @@ export interface PublishInput {
   readonly seq: number | null;
   readonly convId: string | null;
   readonly mentions?: readonly string[];
+  /**
+   * 即使订阅/可见性判定不通过，也要推给这些用户的连接。
+   *
+   * 用于"被踢的人自己"：踢人要先把 membership 删掉，删掉之后他就不再
+   * 通过可见性检查了，但他的客户端必须收到 member.leave 才知道自己已经出群。
+   */
+  readonly forceUserIds?: readonly string[];
 }
 
 export class Hub {
@@ -65,10 +72,12 @@ export class Hub {
    */
   publish(input: PublishInput): number {
     const evt = makeEvt(input.type, input.seq, nowMs(), input.data);
+    const forced = new Set(input.forceUserIds ?? []);
     let sent = 0;
     for (const state of this.clients.values()) {
       if (!state.conn.authed) continue;
-      if (!this.accepts(state, input)) continue;
+      // 强制收件人跳过订阅过滤（见 forceUserIds 的注释）
+      if (!forced.has(state.userId) && !this.accepts(state, input)) continue;
       state.conn.send(evt);
       if (input.seq !== null && input.seq > state.lastSeq) state.lastSeq = input.seq;
       sent += 1;

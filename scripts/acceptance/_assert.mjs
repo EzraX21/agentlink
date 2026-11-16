@@ -50,6 +50,10 @@ export function lte(actual, threshold, label) {
   return ok(actual <= threshold, `${label} (${actual} <= ${threshold})`);
 }
 
+export function lt(actual, threshold, label) {
+  return ok(actual < threshold, `${label} (${actual} < ${threshold})`);
+}
+
 export function includes(haystack, needle, label) {
   const has = typeof haystack === 'string' ? haystack.includes(needle) : haystack.includes(needle);
   if (!has) console.log(`      未包含: ${fmt(needle)}`);

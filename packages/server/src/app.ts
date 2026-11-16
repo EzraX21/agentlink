@@ -5,6 +5,7 @@ import type { Config } from './config.js';
 import { loggerOptions } from './logger.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { registerStatic } from './routes/static.js';
 import { WsGateway, type Connection } from './ws/gateway.js';
 import { openDatabase, type OpenedDb } from './db/index.js';
 import { AuthService } from './auth/service.js';
@@ -153,6 +154,8 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   await app.register(async (instance) => {
     await authRoutes(instance, services);
   });
+
+  await registerStatic(app, config.publicDir);
 
   gateway.attach(app.server);
 
