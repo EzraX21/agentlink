@@ -270,8 +270,20 @@ function isUniqueViolation(err: unknown): boolean {
   );
 }
 
-/** `message.get` */
-export function getMessage(db: Db, convId: string, messageId: string, userId: string): Message {
+/**
+ * `message.get`。
+ *
+ * 流式消息的**真值在内存里**（落库是 500ms/512 字符节流的），所以这里必须
+ * 把内存里累积的文本覆盖上去 —— 协议 §8.2 要求客户端在 rev 跳变时调它拿到
+ * "当前完整文本"，如果只读库，会拿到最多落后 500ms 的旧内容。
+ */
+export function getMessage(
+  db: Db,
+  convId: string,
+  messageId: string,
+  userId: string,
+  liveTextOf?: (messageId: string) => string | undefined,
+): Message {
   requireMembership(db, convId, userId);
   const row = findMessage(db, messageId);
   if (!row || row.convId !== convId) {
@@ -279,6 +291,12 @@ export function getMessage(db: Db, convId: string, messageId: string, userId: st
   }
   const sender = findUserById(db, row.senderId);
   if (!sender) throw new AgentLinkError('NOT_FOUND', '发送者不存在', { what: 'user' });
+
+  const live = row.state === 'streaming' ? liveTextOf?.(messageId) : undefined;
+  if (live !== undefined) {
+    const patched = { ...row, contentJson: JSON.stringify([{ type: 'text', text: live }]) };
+    return toMessage(patched as MessageRow, sender);
+  }
   return toMessage(row, sender);
 }
 

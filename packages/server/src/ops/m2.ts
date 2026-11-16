@@ -44,7 +44,16 @@ export function registerM2Handlers(handlers: HandlerMap): void {
 
   const messageGet: Handler = (ctx) => {
     const data = validateData('message.get', ctx.rawData);
-    return { message: getMessage(ctx.db, data.conv_id, data.message_id, ctx.state.userId) };
+    // 流式消息的真值在内存里，见 getMessage 的注释
+    return {
+      message: getMessage(
+        ctx.db,
+        data.conv_id,
+        data.message_id,
+        ctx.state.userId,
+        (id) => ctx.services.streams.get(id)?.text,
+      ),
+    };
   };
 
   const messageRevoke: Handler = (ctx) => {

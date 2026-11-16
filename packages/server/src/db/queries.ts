@@ -468,6 +468,17 @@ export function appendEvent(
   return inserted.seq;
 }
 
+/**
+ * 回填事件的 payload。
+ *
+ * 为什么需要它：`message.final` 的 payload 里要带完整 message，而 message.seq
+ * 正是这次 appendEvent 分配的 seq —— 只有 insert 之后才知道。所以先占位插入，
+ * 同一事务内再回填。两步同事务，外部看不到中间态（数据模型 §4）。
+ */
+export function updateEventPayload(db: Db, seq: number, payload: string): void {
+  db.update(events).set({ payload }).where(eq(events.seq, seq)).run();
+}
+
 export interface ReplayRow {
   seq: number;
   type: string;

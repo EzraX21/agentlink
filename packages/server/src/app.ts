@@ -14,8 +14,11 @@ import { makeHandlers, validateData, type HandlerMap } from './ops/dispatch.js';
 import { registerM1Handlers } from './ops/m1.js';
 import { registerM2Handlers } from './ops/m2.js';
 import { registerM3Handlers } from './ops/m3.js';
+import { registerM4Handlers, makeStreamHooks } from './ops/m4.js';
 import { startEventsCleanup } from './services/resume.js';
-import { AgentLinkError } from '@agentlink/protocol';
+import { StreamRegistry } from './services/stream.js';
+import { AgentLinkError, makeEvt } from '@agentlink/protocol';
+import { findMessage } from './db/queries.js';
 
 export interface AppOptions {
   config: Config;
@@ -63,6 +66,40 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   registerM2Handlers(handlers);
   registerM3Handlers(handlers);
 
+  // 流式注册表：打断时要能通知到生成方的那条连接，所以先建 registry，
+  // 通知函数里再查 gateway 的连接表。
+  const streams = new StreamRegistry(
+    dbc.db,
+    makeStreamHooks(hub, (messageId) => {
+      const row = findMessage(dbc.db, messageId);
+      if (!row) return;
+      for (const state of hub.connectionsOfUser(row.senderId)) {
+        state.conn.send(
+          makeEvt(
+            'message.update',
+            null,
+            Date.now(),
+            {
+              conv_id: row.convId,
+              message_id: messageId,
+              rev: 0,
+              delta: '',
+              stream_closed: true,
+            },
+          ),
+        );
+      }
+    }),
+  );
+
+  registerM4Handlers(handlers, streams);
+
+  // 启动时清理残留的 streaming 消息（数据模型 §6.4）
+  const recovered = streams.recoverStaleOnBoot();
+  if (recovered.finalized > 0 || recovered.deleted > 0) {
+    app.log.warn(recovered, '启动时收尾了残留的流式消息');
+  }
+
   let services: AppServices;
 
   const gateway = new WsGateway({
@@ -98,10 +135,14 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     },
     onClose: (conn) => {
       hub.remove(conn.id);
+      // 生成方断开：它名下未完成的流按 abort 语义收尾（空内容则删）
+      if (conn.userId !== null) {
+        streams.abortAllOf(conn.userId);
+      }
     },
   });
 
-  services = { config, dbc, hub, auth, gateway };
+  services = { config, dbc, hub, auth, gateway, streams };
 
   await app.register(healthRoutes);
   await app.register(async (instance) => {
@@ -117,6 +158,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     stopCleanup();
     await gateway.close();
     dbc.close();
+  });
+
+  // 连接断开时收尾它名下未完成的流（空内容则删），避免留下僵尸 streaming 行
+  app.addHook('onClose', async () => {
+    /* 流式上下文随进程结束；单条连接的收尾在 gateway 的 onClose 里做 */
   });
 
   return { app, gateway, services };
