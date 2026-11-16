@@ -1,0 +1,14 @@
+packages:
+  - packages/*
+
+# pnpm 默认不跑依赖的安装脚本。这里只放行两个：
+#   - better-sqlite3 需要下载/编译原生 binding
+#   - esbuild（vite 的依赖）需要安装平台二进制
+# 其他依赖一律不许跑脚本。
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+
+# @fastify/multipart 10.1.9 比默认的最小发布年龄新，显式放行（M7 上传用）。
+minimumReleaseAgeExclude:
+  - '@fastify/multipart@10.1.9'

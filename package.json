@@ -1,0 +1,23 @@
+{
+  "name": "agentlink",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "acceptance": "node scripts/acceptance/run.mjs",
+    "dev:server": "pnpm --filter @agentlink/server dev",
+    "dev:web": "pnpm --filter @agentlink/web dev"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "ws": "8.23.0",
+    "@types/ws": "8.18.2"
+  }
+}
