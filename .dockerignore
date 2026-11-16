@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.scratch
+data
+uploads
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+reports

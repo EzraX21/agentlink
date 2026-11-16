@@ -1,0 +1,120 @@
+# AgentLink
+
+一套**自研的、协议层原生为 AI Agent 设计**的即时通讯系统。不是挂在 QQ 上的协议端，
+也不是 Telegram 换后端：自研服务端 + 自研协议 + React 单页客户端，agent 是与人类
+**同权**的虚拟用户。
+
+- 协议规范：[`docs/02-协议规范.md`](docs/02-协议规范.md)（整个项目的价值都在这份文件里）
+- 数据模型：[`docs/03-数据模型.md`](docs/03-数据模型.md)
+- 实现计划：[`docs/04-实现计划.md`](docs/04-实现计划.md)
+- 施工守则：[`docs/05-施工守则.md`](docs/05-施工守则.md)
+- 需求来源：[`需求确认书.md`](需求确认书.md)
+- 实现决策记录：[`docs/DECISIONS.md`](docs/DECISIONS.md)
+- 里程碑进度：[`docs/PROGRESS.md`](docs/PROGRESS.md)
+
+---
+
+## 3 行启动（Docker）
+
+```bash
+cp .env.example .env && sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/;s/^AGENT_TOKEN_PEPPER=.*/AGENT_TOKEN_PEPPER=$(openssl rand -hex 16)/" .env
+docker compose up -d --build
+# 浏览器打开 http://localhost（本地用 80；想换端口在 .env 里设 HTTP_PORT=8080）
+```
+
+数据落在两个命名卷里（`db`、`caddy_data`），`docker compose restart` 不丢数据。
+
+## 本地开发
+
+```bash
+# 依赖（本机 pnpm 需要一个可写的 XDG_RUNTIME_DIR，见下方"环境注意"）
+export XDG_RUNTIME_DIR="$PWD/../.runtime"
+pnpm install
+
+# 服务端（缺 JWT_SECRET / AGENT_TOKEN_PEPPER 会直接退出，这是有意的）
+cd packages/server && cp .env.example .env   # 填好两个密钥
+cd ../.. && pnpm dev:server                  # http://127.0.0.1:3000
+
+# Web（另一个终端）
+pnpm dev:web                                 # http://127.0.0.1:5173，已配好 /api 与 /ws 代理
+```
+
+## 验收
+
+```bash
+export XDG_RUNTIME_DIR="$PWD/../.runtime"
+
+node scripts/acceptance/run.mjs m0            # 单个里程碑
+node scripts/acceptance/run.mjs m0 m1 m2      # 按顺序跑多个
+node scripts/acceptance/run.mjs all           # 全部（含 M10 的 Docker 部署）
+```
+
+每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
+`KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
+
+六个验收标准与里程碑的对应关系见 [`docs/PROGRESS.md`](docs/PROGRESS.md)。
+
+## 目录结构
+
+```
+packages/
+  protocol/    # Zod schema、帧、op、evt、错误码 —— 唯一真源，只依赖 zod
+  server/      # Fastify 5 + ws + better-sqlite3 + Drizzle
+  web/         # React 19 + Vite 8 + TanStack Query + Zustand + react-virtual
+  agent-sdk/   # 给 agent 用的 TS 客户端，消费 protocol 包
+examples/
+  echo-agent/  # 收到 @ 就流式回显（验收 1 的演示）
+  llm-agent/   # 接 OpenAI 兼容接口，流式输出
+hooks/
+  example.mjs  # 服务端插件钩子示例（M11）
+scripts/acceptance/   # 验收脚本（不引用 protocol 包，独立实现协议）
+docs/                 # 规格 + 决策记录 + 进度
+```
+
+## 接一个 agent
+
+```js
+import { Client } from '@agentlink/agent-sdk';
+
+const client = new Client({ url: 'ws://127.0.0.1:3000/ws', token: process.env.AGENTLINK_TOKEN });
+
+client.onMessage(async ({ convId, text, message, client: c }) => {
+  // 一步拿到可直接拼 prompt 的上下文（协议 §7）
+  const ctx = await c.context({ conv_id: convId, before: 20, max_chars: 8000 });
+
+  const stream = await c.stream(convId, { replyTo: message.id });
+  for (const ch of [...`你说的是：${text}`]) {
+    await stream.write(ch);           // 逐字增长，可被人类打断
+  }
+  await stream.commit();
+});
+
+await client.connect();
+```
+
+agent token 用管理员接口创建，**只在创建时返回一次**：
+
+```bash
+curl -sX POST localhost:3000/api/admin/agents \
+  -H "authorization: Bearer $ACCESS_TOKEN" -H 'content-type: application/json' \
+  -d '{"username":"echo","display_name":"回显助手"}'
+```
+
+## 环境注意
+
+- **`XDG_RUNTIME_DIR` 必须可写**。pnpm 会在那里放 store 操作锁；本机默认的
+  `/run/user/1000` 在某些沙箱里不可写，会报
+  `ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK`。本仓库的所有 pnpm 命令都建议带
+  `XDG_RUNTIME_DIR=<可写目录>`。
+- **Docker 的 `DOCKER_CONFIG` 同理**：如果 `~/.docker` 不可写，设
+  `DOCKER_CONFIG=<可写目录>`，否则 buildx 会报
+  `failed to update builder last activity time`。
+- 服务端**拒绝**在没有 `JWT_SECRET` / `AGENT_TOKEN_PEPPER` 时启动，不会静默用默认值
+  （实现计划 M0 硬性要求）。
+
+## 技术栈（已定）
+
+Node 24+ / TypeScript strict（`noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`）/
+pnpm workspaces；Fastify 5 + `ws` + better-sqlite3 + Drizzle；协议层 Zod；
+前端 React 19 + Vite 8 + TanStack Query + Zustand + `@tanstack/react-virtual` + Tailwind；
+测试 Vitest + 自写的 WS 验收脚本；部署 Docker + compose + Caddy。
