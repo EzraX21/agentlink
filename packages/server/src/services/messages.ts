@@ -17,6 +17,7 @@ import {
   listContextAfter,
   listContextBefore,
   listHistory,
+  listMemberCandidates,
   revokeMessage,
   transaction,
 } from '../db/queries.js';
@@ -166,6 +167,10 @@ export function sendMessage(db: Db, input: SendMessageInput): SendMessageResult 
   const sender = findUserById(db, input.senderId);
   if (!sender) throw new AgentLinkError('NOT_FOUND', '发送者不存在', { what: 'user' });
 
+  // @ 提及在发送时算一次，写进事件 payload。
+  // 这样 resume 补发时不用再查成员表，过滤结果与实时推送完全一致。
+  const mentions = extractMentions(input.content, listMemberCandidates(db, input.convId));
+
   try {
     return transaction(db, (): SendMessageResult => {
       insertMessage(db, {
@@ -191,6 +196,7 @@ export function sendMessage(db: Db, input: SendMessageInput): SendMessageResult 
         type: 'message.new',
         payload: JSON.stringify({
           conv_id: input.convId,
+          mentions,
           message: toMessage(
             {
               id: messageId,
@@ -228,7 +234,7 @@ export function sendMessage(db: Db, input: SendMessageInput): SendMessageResult 
         createdAt,
         duplicate: false,
         message: toMessage(stored, sender),
-        mentions: [],
+        mentions,
       };
     });
   } catch (err) {

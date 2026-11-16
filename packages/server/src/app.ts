@@ -13,6 +13,8 @@ import type { AppServices } from './services/index.js';
 import { makeHandlers, validateData, type HandlerMap } from './ops/dispatch.js';
 import { registerM1Handlers } from './ops/m1.js';
 import { registerM2Handlers } from './ops/m2.js';
+import { registerM3Handlers } from './ops/m3.js';
+import { startEventsCleanup } from './services/resume.js';
 import { AgentLinkError } from '@agentlink/protocol';
 
 export interface AppOptions {
@@ -59,6 +61,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   const handlers: HandlerMap = makeHandlers();
   registerM1Handlers(handlers);
   registerM2Handlers(handlers);
+  registerM3Handlers(handlers);
 
   let services: AppServices;
 
@@ -107,7 +110,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   gateway.attach(app.server);
 
+  // events 只留 30 天（数据模型 §6.3），每 10 分钟清一次
+  const stopCleanup = startEventsCleanup(dbc.db, app.log);
+
   app.addHook('onClose', async () => {
+    stopCleanup();
     await gateway.close();
     dbc.close();
   });

@@ -6,9 +6,7 @@ import {
   getMessage,
   revokeMessageById,
   sendMessage,
-  extractMentions,
 } from '../services/messages.js';
-import { listMemberCandidates } from '../db/queries.js';
 
 /**
  * M2 的 op：message.send / message.get / message.revoke / history.fetch / context.fetch。
@@ -26,14 +24,13 @@ export function registerM2Handlers(handlers: HandlerMap): void {
 
     // 幂等命中不重复推事件（否则客户端会看到两条）
     if (!result.duplicate) {
-      // @ 判定同时支持 `@u_xxx`（ID）与 `@昵称` 两种写法
-      const mentions = extractMentions(data.content, listMemberCandidates(ctx.db, data.conv_id));
+      // mentions 已由 sendMessage 算好并写进事件 payload（供 resume 复用）
       ctx.hub.publish({
         type: 'message.new',
-        data: { conv_id: data.conv_id, message: result.message },
+        data: { conv_id: data.conv_id, mentions: result.mentions, message: result.message },
         seq: result.seq,
         convId: data.conv_id,
-        mentions,
+        mentions: result.mentions,
       });
     }
 
