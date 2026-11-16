@@ -103,8 +103,18 @@ async function waitForStatus(url, opts, wantStatus, timeoutMs = 90_000) {
 }
 
 export async function run(ctx) {
+  REPO_ROOT = ctx.repoRoot;
+  try {
+    return await runDeployChecks(ctx);
+  } finally {
+    // 无论断言成败都要拆掉容器与命名卷：否则每跑一次验收就留一套栈在跑，
+    // 下一次的 `down -v` 只能收拾上一次的，久了会积一堆（也占端口）。
+    await docker(['compose', 'down', '-v'], { timeout: 180_000 });
+  }
+}
+
+async function runDeployChecks(ctx) {
   const repoRoot = ctx.repoRoot;
-  REPO_ROOT = repoRoot;
 
   section('M10.0 Docker 可用性');
   const info = await docker(['info'], { timeout: 30_000 });
