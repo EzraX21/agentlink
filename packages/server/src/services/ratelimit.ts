@@ -9,6 +9,34 @@ import { AgentLinkError, RATE_LIMITS } from '@agentlink/protocol';
 
 export type RateLimitAction = keyof typeof RATE_LIMITS;
 
+/**
+ * 测试专用配额覆盖。
+ *
+ * 只在 `NODE_ENV=test` 下生效（见 fromEnv）。验收脚本要造 120/200 条消息来验证
+ * seq 单调与分页，而协议 §11 的 30 条/60 秒配额是按**身份**计的 —— 这是正确的
+ * 生产行为（M5 单独验证它），但不该让规模测试变成"等配额"。
+ *
+ * 生产环境完全忽略这个变量：配额仍是服务端常量，不落库、不做配置界面（协议 §11）。
+ */
+export type RateLimitOverrides = Partial<Record<RateLimitAction, number>>;
+
+export function fromEnv(env: NodeJS.ProcessEnv = process.env): RateLimiter {
+  if (env['NODE_ENV'] !== 'test') return new RateLimiter();
+  const raw = env['RATE_LIMIT_OVERRIDE'];
+  if (raw === undefined || raw === '') return new RateLimiter();
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const overrides: RateLimitOverrides = {};
+    for (const key of Object.keys(RATE_LIMITS) as RateLimitAction[]) {
+      const v = parsed[key];
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) overrides[key] = v;
+    }
+    return new RateLimiter(overrides);
+  } catch {
+    return new RateLimiter();
+  }
+}
+
 interface Bucket {
   /** 当前可用令牌数（浮点，按时间补充）。 */
   tokens: number;
@@ -18,6 +46,14 @@ interface Bucket {
 export class RateLimiter {
   private readonly buckets = new Map<string, Bucket>();
 
+  constructor(private readonly overrides: RateLimitOverrides = {}) {}
+
+  #cfg(action: RateLimitAction): { limit: number; window_ms: number } {
+    const base = RATE_LIMITS[action];
+    const limit = this.overrides[action];
+    return limit === undefined ? base : { limit, window_ms: base.window_ms };
+  }
+
   /**
    * 消费一个令牌。返回 `null` 表示通过；否则返回需要等待的毫秒数。
    *
@@ -25,7 +61,7 @@ export class RateLimiter {
    * 而不是在窗口边界上抖动。
    */
   consume(userId: string, action: RateLimitAction, now = Date.now()): number | null {
-    const cfg = RATE_LIMITS[action];
+    const cfg = this.#cfg(action);
     const key = `${action}:${userId}`;
     const ratePerMs = cfg.limit / cfg.window_ms;
 

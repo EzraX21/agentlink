@@ -89,3 +89,96 @@ CJK 当一个词。这意味着只靠 FTS5 **无法满足验收 4**（关键词�
 
 **验收覆盖**：`m8.mjs` 的 M8.5 专门测中文子串（`记得带附件`）与拉丁词（`deploy`），
 两者都要求 `excerpt` 带 `<mark>`。
+
+---
+
+## 2026-11-16 · @ 提及的三种写法
+
+**问题**：协议只规定 `only_mentions:true` 时"该消息 @ 了本用户才推送"，没说 @ 的
+文本形式是什么。实现在 M9 第一次跑通时暴露问题：示例 agent 的用户名是 `echo`，
+测试里发 `@echo 你好`，但当时的判定只认 `@<user_id>` 与 `@<display_name>`，所以
+agent 一条都收不到。
+
+**选择**：三种写法都认 —— `@u_xxx`（ID）、`@昵称`、`@username`。
+
+**理由**：
+- agent 的用户名是稳定的英文标识，`@echo` 比 `@u_01J...` 好记得多，比昵称稳定（昵称可改）。
+- ID 形式对 SDK 最省事（不会歧义）。
+- 三者都认不会误判：都是本群成员的名字，且需要显式 `@` 前缀。
+
+**代价**：昵称与用户名可能撞名（例如两个成员都叫 "echo"）。v1 接受：撞名时两条都算
+被 @，agent 会多收一条。精确指向用 ID 形式。
+
+**验收覆盖**：`m9.mjs` 的 M9.2 用 `@echo` 触发，要求 3 秒内出现逐字增长的回复。
+
+---
+
+## 2026-11-16 · FTS 触发器必须分开判断"旧行是否在索引里"
+
+**问题**：按数据模型 §2 的字面 DDL 实现触发器后，流式消息 commit 时报
+`SQLITE_CORRUPT_VTAB`（database disk image is malformed），此后该库所有消息
+UPDATE 都失败。
+
+**根因**：DDL 里的 `trg_messages_au` 条件是 `WHEN old.state='final' OR new.state='final'`，
+且**总是**先执行 FTS5 的 `'delete'` 插入。流式消息插入时 `state='streaming'`
+（没进过索引），UPDATE 成 `'final'` 时 `old.state != 'final'`，却仍对从未存在的
+索引项发 `'delete'` —— FTS5 直接标记虚表损坏。
+
+**选择**：迁移 0002 把三个动作**分开判断**：
+
+```sql
+CREATE TRIGGER trg_messages_au AFTER UPDATE ON messages
+BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, text_plain)
+  SELECT 'delete', old.rowid, old.text_plain
+  WHERE old.state = 'final' AND old.revoked_at IS NULL;   -- 旧行在索引里才删
+
+  INSERT INTO messages_fts(rowid, text_plain)
+  SELECT new.rowid, new.text_plain
+  WHERE new.state = 'final' AND new.revoked_at IS NULL;   -- 新行该进才插
+END;
+```
+
+启动时还跑一次 FTS5 的 `'rebuild'`（`src/db/index.ts` 的 `rebuildFts`），自愈任何
+索引不一致。这条命令不能放进迁移文件：drizzle 的 migrator 用 `prepare()` 执行每条
+语句，而 FTS5 特殊命令不能 prepare。
+
+**代价**：每次启动多一次 rebuild。1 万条量级是毫秒级，可接受；换来的是"搜索不会
+静静地返回空结果"。
+
+**验收覆盖**：`m4.mjs`（流式 commit 会 UPDATE messages）、`m8.mjs`（FTS 索引行数）。
+
+---
+
+## 2026-11-16 · 测试环境的限流放宽
+
+**问题**：M2/M3/M8 要造 120～10000 条消息来验证 seq 单调、分页与查询耗时，
+但协议 §11 的发消息配额是 30 条/60 秒，按身份计 —— 规模测试会先撞限流。
+
+**选择**：`RateLimiter.fromEnv()` 在 `NODE_ENV=test` 且设置了
+`RATE_LIMIT_OVERRIDE` 时才覆盖配额；验收跑批器给这几个里程碑自动注入该变量。
+
+**理由**：
+- 限流本身由 M5 单独验证（60 秒内 31 条 → 第 31 条 RATE_LIMITED），不能被削弱。
+- 生产环境完全忽略这个变量：配额仍是服务端常量，不落库、无配置界面（协议 §11）。
+- 不这样做就只能让规模测试"等配额"，把 8 秒的验收变成几分钟。
+
+**验收覆盖**：`m5.mjs` 的 M5.4 用**默认**配额跑（不注入 override），断言第 31 条被拒。
+
+---
+
+## 2026-11-16 · 验收跑批器按进程组杀进程
+
+**问题**：M9 要求"杀掉服务端 10 秒再启动，agent 自动重连"。第一次跑时出现
+`EADDRINUSE`，而断言"重连成功"竟然还是通的 —— 说明它连上的是**没被杀掉的旧进程**。
+
+**根因**：服务端是用 `tsx src/index.ts` 起的，`tsx` 会再 fork 一个 node 进程跑真正的
+服务。只 `kill(tsx.pid)` 会留下孤儿子进程继续占着端口。
+
+**选择**：`spawn(..., { detached: true })` 让子进程自成进程组，用
+`process.kill(-pid, sig)` 按组发信号；`stop()`/`kill9()` 之后还要轮询等端口真正释放。
+
+**代价**：验收脚本多几十行；换来的是"重启"这件事真的发生了。
+
+**验收覆盖**：`m9.mjs` 的 M9.5 要求出现**第二次** `resume 完成`（用出现次数判定，
+不是 includes —— 否则首次连接的日志会让断言假阳）。

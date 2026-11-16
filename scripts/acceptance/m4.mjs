@@ -15,6 +15,8 @@ import { WsClient } from './_client.mjs';
 import { openDb, count } from './_db.mjs';
 
 export const needsServer = true;
+/** 本里程碑会连续发多个 delta / 消息，放宽测试环境的限流（见 run.mjs 注释）。 */
+export const relaxedRateLimit = true;
 
 async function mkUser(http, username, displayName) {
   const res = await http('POST', '/api/auth/register', {

@@ -53,18 +53,26 @@ export function contentToPlainText(content: Content): string {
   return parts.join('\n');
 }
 
-/** 从 content 里抽出被 @ 的用户（`only_mentions` 订阅用）。 */
+/**
+ * 从 content 里抽出被 @ 的用户（`only_mentions` 订阅用）。
+ *
+ * 三种写法都认：
+ *   - `@u_xxx`   —— ID 形式，SDK 用起来最省事、最不容易歧义
+ *   - `@昵称`     —— 人类习惯的写法
+ *   - `@username` —— agent 的用户名（英文、稳定），`@echo 你好` 就是这种
+ */
 export function extractMentions(
   content: Content,
-  candidates: ReadonlyArray<{ id: string; displayName: string }>,
+  candidates: ReadonlyArray<{ id: string; displayName: string; username?: string }>,
 ): string[] {
-  const text = content
-    .map((b) => (b.type === 'text' ? b.text : ''))
-    .join('\n');
+  const text = content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
   const hits: string[] = [];
   for (const c of candidates) {
-    // 支持 `@u_xxx`（ID 形式，SDK 常用）与 `@昵称` 两种
-    if (text.includes(`@${c.id}`) || text.includes(`@${c.displayName}`)) {
+    if (
+      text.includes(`@${c.id}`) ||
+      text.includes(`@${c.displayName}`) ||
+      (c.username !== undefined && c.username !== '' && text.includes(`@${c.username}`))
+    ) {
       hits.push(c.id);
     }
   }

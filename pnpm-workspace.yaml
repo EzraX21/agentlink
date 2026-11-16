@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - examples
 
 # pnpm 默认不跑依赖的安装脚本。这里只放行两个：
 #   - better-sqlite3 需要下载/编译原生 binding

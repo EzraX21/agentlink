@@ -271,13 +271,18 @@ export function listMyConvIds(db: Db, userId: string): string[] {
     .map((r) => r.convId);
 }
 
-/** 成员 + 展示名，用于 @ 提及判定（`only_mentions` 订阅）。 */
+/**
+ * 成员 + 展示名 + 用户名，用于 @ 提及判定（`only_mentions` 订阅）。
+ *
+ * 三种写法都要认：`@u_xxx`（ID，SDK 最省事）、`@昵称`（人类常用）、
+ * `@username`（agent 最常用，因为 agent 的用户名是稳定的英文标识）。
+ */
 export function listMemberCandidates(
   db: Db,
   convId: string,
-): Array<{ id: string; displayName: string }> {
+): Array<{ id: string; displayName: string; username: string }> {
   return db
-    .select({ id: users.id, displayName: users.displayName })
+    .select({ id: users.id, displayName: users.displayName, username: users.username })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .where(eq(memberships.convId, convId))

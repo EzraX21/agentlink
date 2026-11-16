@@ -45,6 +45,20 @@ async function freePort() {
   });
 }
 
+/** 等端口从占用/TIME_WAIT 状态释放。 */
+async function waitPortFree(port, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const free = await new Promise((resolve) => {
+      const srv = createServer();
+      srv.once('error', () => resolve(false));
+      srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)));
+    });
+    if (free) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 async function waitForHealth(baseUrl, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   let lastErr = 'unknown';
@@ -95,10 +109,14 @@ class ServerHandle {
 
   async start(extraEnv = {}) {
     const env = this.env(extraEnv);
+    // detached: true 让子进程自成一个**进程组**。tsx 会再 fork 一个 node 进程
+    // 去跑真正的服务，只 kill tsx 的 pid 会留下孤儿进程占着端口 —— 验收脚本
+    // 就会"以为重启了，其实在跟老进程说话"。按进程组杀才能真干净。
     const child = spawn(tsxBin, ['src/index.ts'], {
       cwd: serverDir,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     });
     this.proc = child;
     this.logs = '';
@@ -115,21 +133,46 @@ class ServerHandle {
     return this;
   }
 
-  async stop() {
-    if (!this.proc || this.proc.exitCode !== null) return;
-    this.proc.kill('SIGTERM');
-    const timer = setTimeout(() => this.proc?.kill('SIGKILL'), 5000);
-    await this.exit;
-    clearTimeout(timer);
-    this.proc = null;
+  /** 按进程组发信号，确保 tsx 拉起的 node 子进程一起退出。 */
+  #signal(sig) {
+    if (!this.proc?.pid) return;
+    try {
+      process.kill(-this.proc.pid, sig);
+    } catch {
+      try {
+        this.proc.kill(sig);
+      } catch {
+        /* 已退出 */
+      }
+    }
   }
 
-  /** M4 验收要 kill -9 后重启。 */
+  async stop() {
+    if (!this.proc || this.proc.exitCode !== null) {
+      this.proc = null;
+      return;
+    }
+    this.#signal('SIGTERM');
+    const exited = await Promise.race([
+      this.exit,
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 5000)),
+    ]);
+    if (exited === 'timeout') {
+      this.#signal('SIGKILL');
+      await this.exit;
+    }
+    this.proc = null;
+    // 端口彻底释放再返回，否则下一次 listen 会 EADDRINUSE
+    await waitPortFree(this.port);
+  }
+
+  /** M4 / M9 验收要 kill -9 后重启。 */
   async kill9() {
     if (!this.proc) return;
-    this.proc.kill('SIGKILL');
+    this.#signal('SIGKILL');
     await this.exit;
     this.proc = null;
+    await waitPortFree(this.port);
   }
 
   /** 换端口重启（同一个数据目录），用于验证持久化。 */
@@ -189,7 +232,12 @@ async function runOne(name) {
     serverLogs: () => handle.logs,
     repoRoot,
     readFile,
-    startServer: (extra) => handle.start(extra),
+    startServer: async (extra) => {
+      // 崩溃恢复场景：沿用原端口重启
+      handle.baseUrl = `http://127.0.0.1:${handle.port}`;
+      handle.wsUrl = `ws://127.0.0.1:${handle.port}/ws`;
+      return handle.start(extra);
+    },
     stopServer: () => handle.stop(),
     restartServer: (extra) => handle.restart(extra),
     kill9Server: () => handle.kill9(),
@@ -200,7 +248,21 @@ async function runOne(name) {
   let started = false;
   try {
     if (NEEDS_SERVER.has(name) && mod.needsServer !== false) {
-      await handle.start(mod.serverEnv ?? {});
+      // 规模测试（M2/M3/M8 要造上百上千条）需要放宽限流，
+      // 否则会卡在协议 §11 的 30 条/60 秒配额上 —— 那是 M5 单独验证的行为。
+      // 只在 NODE_ENV=test 下生效，见 services/ratelimit.ts 的 fromEnv。
+      const scaleEnv =
+        mod.relaxedRateLimit === true
+          ? {
+              RATE_LIMIT_OVERRIDE: JSON.stringify({
+                message_send: 100_000,
+                stream_delta: 100_000,
+                stream_begin: 100_000,
+                search: 100_000,
+              }),
+            }
+          : {};
+      await handle.start({ ...scaleEnv, ...(mod.serverEnv ?? {}) });
       started = true;
     }
     const { resetCounters, counters } = await import('./_assert.mjs');

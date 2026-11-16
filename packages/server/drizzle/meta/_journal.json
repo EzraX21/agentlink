@@ -15,6 +15,13 @@
       "when": 1794840818436,
       "tag": "0001_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794842886178,
+      "tag": "0002_fts_trigger_fix",
+      "breakpoints": true
     }
   ]
 }

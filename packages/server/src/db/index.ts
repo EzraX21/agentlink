@@ -54,11 +54,34 @@ export function openDatabase(opts: OpenDbOptions): OpenedDb {
     opts.logger?.info({ path: opts.path }, 'migrations applied');
   }
 
+  // FTS5 的 'rebuild' 是特殊命令，用 exec 而不是 prepare 执行。
+  // 每次启动跑一次很便宜（1 万条量级毫秒级），且能自愈任何索引不一致 ——
+  // 比让搜索静静地返回空结果安全得多。
+  rebuildFts(raw);
+
   return {
     db,
     raw,
     close: () => raw.close(),
   };
+}
+
+/**
+ * 让 FTS5 外部内容表与 messages 表保持一致。
+ *
+ * `INSERT INTO messages_fts(messages_fts) VALUES('rebuild')` 是 FTS5 的特殊命令，
+ * 必须用 exec（cannot be prepared）。代价随消息数线性增长，本规模可接受。
+ */
+export function rebuildFts(raw: Database.Database): void {
+  const hasFts = raw
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages_fts'")
+    .get();
+  if (hasFts === undefined) return;
+  try {
+    raw.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+  } catch {
+    // 索引刚创建还没内容时可能报错，不影响正确性（触发器会继续写）
+  }
 }
 
 export { schema };

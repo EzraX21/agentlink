@@ -61,19 +61,23 @@ export async function run(ctx) {
   section('M0.4 帧信封与未知 op（不断开连接）');
   const client = new WsClient(wsUrl);
   await client.connect();
-  const unknown = await client.request('does.not.exist', {});
-  expectError(unknown, 'UNSUPPORTED_OP', '未知 op 回 UNSUPPORTED_OP');
-  ok(!client.closed, '未知 op 后连接仍然开着');
 
-  const badVersion = await client.request('ping', {}, { id: 'v2probe' }).catch(() => null);
-  // 先确认 ping 在未认证时是 AUTH_REQUIRED（M0 还没有 auth 处理也算正常错误）
-  ok(badVersion === null || badVersion.ok === false, '未认证时非 auth 帧被拒');
+  // 未认证时发非 auth op：先撞 AUTH_REQUIRED（协议 §9），这是对的
+  const beforeAuth = await client.request('ping', {});
+  expectError(beforeAuth, 'AUTH_REQUIRED', '未认证时非 auth 帧 → AUTH_REQUIRED');
 
+  // 版本不是 1：回 UNSUPPORTED_VERSION，且**不断开连接**（协议 §12）
   client.sendRaw({ v: 2, kind: 'req', id: 'bad-version', op: 'ping', data: {} });
-  await new Promise((r) => setTimeout(r, 300));
+  const versionErr = await client.request('does.not.exist', {}, { id: 'probe-after-version' });
+  ok(!client.closed, '版本不符后连接仍然开着');
+  ok(versionErr.ok === false, '后续请求仍能得到响应（说明连接可用）');
+
+  // 未知 op 在**已认证**后才是 UNSUPPORTED_OP —— M0 还没有账号，
+  // 所以这里直接断言网关对"未知 op 且未认证"的优先级是 AUTH_REQUIRED，
+  // 真正的 UNSUPPORTED_OP 由 m1/m2 在已认证连接上覆盖。
   ok(
-    client.events.length >= 0 && !client.closed,
-    '版本不符时不断开连接（等 M1 起用 UNSUPPORTED_VERSION 响应）',
+    versionErr.error?.code === 'AUTH_REQUIRED' || versionErr.error?.code === 'UNSUPPORTED_OP',
+    `未知 op 回 ${versionErr.error?.code}（未认证时 AUTH_REQUIRED 优先，符合协议 §9）`,
   );
   client.close();
 
