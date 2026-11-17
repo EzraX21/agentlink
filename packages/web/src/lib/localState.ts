@@ -73,6 +73,25 @@ export function saveUnread(counts: Record<string, number>): void {
 }
 
 // ---------------------------------------------------------------------------
+// 侧栏宽度（拖拽调整，本地记忆）
+// ---------------------------------------------------------------------------
+
+const SIDEBAR_KEY = 'agentlink.sidebar_width';
+export const SIDEBAR_MIN = 240;
+export const SIDEBAR_MAX = 520;
+
+export function loadSidebarWidth(): number {
+  const raw = safeGet(SIDEBAR_KEY);
+  const n = raw === null ? NaN : Number(raw);
+  if (!Number.isFinite(n)) return 300;
+  return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(n)));
+}
+
+export function saveSidebarWidth(width: number): void {
+  safeSet(SIDEBAR_KEY, String(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(width)))));
+}
+
+// ---------------------------------------------------------------------------
 // 置顶（仅本地排序偏好）
 // ---------------------------------------------------------------------------
 

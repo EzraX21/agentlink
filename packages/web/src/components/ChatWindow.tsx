@@ -38,6 +38,9 @@ interface Props {
   unreadOnOpen?: number;
   /** 窄屏时显示返回按钮（回到会话列表）。 */
   onBack?: () => void;
+  /** 点标题 / 群信息按钮：查看（有权限则可改）群名与公告。 */
+  onOpenGroupInfo?: () => void;
+  canEditGroup?: boolean;
 }
 
 /** 虚拟列表里的一行：日期分隔线 或 一条消息。 */
@@ -98,6 +101,8 @@ export function ChatWindow({
   highlightMessageId,
   unreadOnOpen = 0,
   onBack,
+  onOpenGroupInfo,
+  canEditGroup = false,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
@@ -316,6 +321,15 @@ export function ChatWindow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {onOpenGroupInfo !== undefined && (
+            <button
+              className="al-btn-ghost"
+              title={canEditGroup ? '群信息（可编辑）' : '群信息'}
+              onClick={onOpenGroupInfo}
+            >
+              群信息
+            </button>
+          )}
           <button
             className="al-btn-ghost"
             title="在会话内搜索（Ctrl+F）"

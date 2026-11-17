@@ -123,6 +123,39 @@ export async function run(ctx) {
   );
   // 客户端对"引用的消息未加载/已撤回"要显示占位而不是空白 —— 见下面的静态检查
 
+  section('A3. 群信息：改群名/公告要推事件、且能补发');
+  expectOk(
+    await a.request('group.update', { conv_id: conv.id, title: '改过的群名', announcement: '周五交周报' }),
+    'owner 改群名与公告',
+  );
+  const groupEvt = await b.nextEvent('group.update');
+  eq(groupEvt.data.conv.title, '改过的群名', '成员收到 group.update 事件（不用刷新）');
+  eq(groupEvt.data.conv.announcement, '周五交周报', '公告也在事件里');
+  gte(groupEvt.seq, 1, 'group.update 带 seq（可补发）');
+
+  const bobView = expectOk(await b.request('conv.get', { conv_id: conv.id }), 'bob 重新拉群信息');
+  eq(bobView.conv.title, '改过的群名', 'bob 侧群名已更新');
+
+  // 补发：bob 断开 → 再改一次 → 重连 resume 应收到 group.update
+  b.close();
+  await new Promise((r) => setTimeout(r, 150));
+  expectOk(
+    await a.request('group.update', { conv_id: conv.id, title: '断线期间改的名' }),
+    'bob 断线期间再改名',
+  );
+  const b2 = await connect(wsUrl, bob.access_token);
+  const lastSeq = groupEvt.seq;
+  const resumeRes = expectOk(await b2.request('resume', { last_seq: lastSeq }), 'bob 重连 resume');
+  gte(resumeRes.replayed, 1, `补发了 ${resumeRes.replayed} 条事件`);
+  const replayed = await b2.drain(500);
+  const replayedGroup = replayed.find((e) => e.type === 'group.update');
+  ok(replayedGroup !== undefined, 'group.update 在补发里（30 天内不丢）');
+  eq(replayedGroup?.data?.conv?.title, '断线期间改的名', '补发的群名正确');
+
+  // 权限：普通成员不能改
+  const bobRename = await b2.request('group.update', { conv_id: conv.id, title: 'bob 想改名' });
+  expectError(bobRename, 'PERM_DENIED', '普通成员改群名 → PERM_DENIED');
+
   section('B1. 前端实现检查（第 2 批）');
   const src = {
     chat: await readFile(`${repoRoot}/packages/web/src/components/ChatWindow.tsx`, 'utf8'),
@@ -225,6 +258,22 @@ export async function run(ctx) {
   includes(src.app, 'narrowShowChat', '窄屏单栏：选中会话只看聊天');
   includes(src.chat, 'onBack', '窄屏有返回按钮');
 
+  section('B1d. 群信息编辑 / 会话右键菜单 / 侧栏拖拽');
+  const dialogSrc = await readFile(
+    `${repoRoot}/packages/web/src/components/GroupInfoDialog.tsx`,
+    'utf8',
+  );
+  includes(dialogSrc, 'group.update', '群信息走协议 §5.2 的 group.update');
+  includes(dialogSrc, '只有群主和管理员能修改', '无权限时有说明');
+  includes(src.chat, '群信息', '聊天窗有群信息入口');
+  includes(src.app, 'GroupInfoDialog', 'App 挂载群信息对话框');
+  includes(src.app, 'saveGroupInfo', '保存走 client.call(group.update)');
+  includes(src.list, '标记为已读', '会话右键菜单可标记已读');
+  includes(src.list, '复制会话 ID', '会话右键菜单可复制 ID');
+  includes(src.app, 'draggingSidebar', '侧栏可拖拽调宽');
+  includes(src.local, 'loadSidebarWidth', '侧栏宽度被持久化');
+  includes(src.local, 'SIDEBAR_MIN', '宽度有下限');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -240,10 +289,11 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 46, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥46）`);
+  gte(Number(passed?.[1] ?? 0), 54, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥54）`);
 
   a.close();
   b.close();
+  b2.close();
 
   return summary('ui-ux');
 }

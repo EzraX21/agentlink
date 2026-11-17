@@ -72,6 +72,8 @@ describe('渲染冒烟', () => {
         unread={{}}
         pinned={[]}
         onTogglePin={() => {}}
+        onMarkRead={() => {}}
+        width={300}
       />,
     );
     expect(screen.getByText('测试群')).toBeTruthy();

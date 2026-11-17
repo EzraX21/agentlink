@@ -234,6 +234,8 @@ describe('未读与置顶', () => {
       unread: {},
       pinned: [],
       onTogglePin: vi.fn(),
+      onMarkRead: vi.fn(),
+      width: 300,
       ...overrides,
     } satisfies React.ComponentProps<typeof ConversationList>;
   }

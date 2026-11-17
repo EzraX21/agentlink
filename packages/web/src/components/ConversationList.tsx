@@ -1,6 +1,7 @@
 import type { Conversation, Message } from '@agentlink/protocol';
 import { avatarColor, formatDay, initials } from '../lib/format.js';
 import { orderByPinned } from '../lib/localState.js';
+import { useState } from 'react';
 
 interface Props {
   convs: Conversation[];
@@ -17,6 +18,10 @@ interface Props {
   /** 置顶的 conv_id 列表（本地偏好）。 */
   pinned: string[];
   onTogglePin: (convId: string) => void;
+  /** 标记已读（清本地未读）。 */
+  onMarkRead: (convId: string) => void;
+  /** 侧栏宽度（拖拽调整）。 */
+  width: number;
 }
 
 /** 左侧会话列表（需求确认书 §10.3：左侧会话列表 + 右侧聊天窗）。 */
@@ -45,9 +50,13 @@ export function ConversationList({
   unread,
   pinned,
   onTogglePin,
+  onMarkRead,
+  width,
 }: Props): React.JSX.Element {
+  const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
+  const [copied, setCopied] = useState(false);
   return (
-    <aside className="al-sidebar flex w-[300px] flex-col">
+    <aside className="al-sidebar flex flex-col" style={{ width }}>
       <header className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid var(--al-border)' }}>
         <button className="al-btn-ghost" onClick={onNewGroup} title="建群">
           ＋
@@ -86,6 +95,10 @@ export function ConversationList({
               className="al-conv-item"
               data-active={conv.id === activeConvId}
               onClick={() => onSelect(conv.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ conv, x: e.clientX, y: e.clientY });
+              }}
             >
               <div className="al-avatar" style={{ background: avatarColor(conv.id) }}>
                 {initials(conv.title || '群')}
@@ -119,6 +132,75 @@ export function ConversationList({
           );
         })}
       </div>
+
+      {menu !== null && (
+        <div
+          className="fixed inset-0 z-[75]"
+          onMouseDown={() => setMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+          }}
+        >
+          <div
+            className="absolute rounded-lg p-1 text-[13px]"
+            style={{
+              left: Math.min(menu.x, window.innerWidth - 200),
+              top: Math.min(menu.y, window.innerHeight - 160),
+              minWidth: 180,
+              background: 'var(--al-bg-sidebar)',
+              border: '1px solid var(--al-border)',
+              boxShadow: '0 8px 24px rgb(0 0 0 / 22%)',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              className="block w-full rounded px-2 py-1.5 text-left hover:bg-[var(--al-bg-hover)]"
+              onClick={() => {
+                onTogglePin(menu.conv.id);
+                setMenu(null);
+              }}
+            >
+              {pinned.includes(menu.conv.id) ? '取消置顶' : '置顶'}
+            </button>
+            <button
+              className="block w-full rounded px-2 py-1.5 text-left hover:bg-[var(--al-bg-hover)]"
+              disabled={(unread[menu.conv.id] ?? 0) === 0}
+              onClick={() => {
+                onMarkRead(menu.conv.id);
+                setMenu(null);
+              }}
+            >
+              标记为已读
+            </button>
+            <button
+              className="block w-full rounded px-2 py-1.5 text-left hover:bg-[var(--al-bg-hover)]"
+              onClick={() => {
+                void navigator.clipboard
+                  ?.writeText(menu.conv.id)
+                  .then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1500);
+                  })
+                  .catch(() => undefined);
+                setMenu(null);
+              }}
+            >
+              复制会话 ID
+            </button>
+          </div>
+        </div>
+      )}
+
+      {copied && (
+        <div
+          className="fixed bottom-20 left-1/2 z-[80] -translate-x-1/2 rounded-full px-3 py-1.5 text-xs text-white"
+          style={{ background: 'rgb(0 0 0 / 72%)' }}
+          role="status"
+        >
+          已复制会话 ID
+        </div>
+      )}
 
       <footer
         className="flex items-center justify-between px-3 py-2 text-xs"

@@ -454,3 +454,26 @@ substr(text, max(1, instr(text, q) - 40), 40)   -- 错
 改成了**递归调用自己**（无命中时 `text.slice(0)` 无限递归），直接
 `RangeError: Maximum call stack size exceeded`，六个用例同时红。教训是：
 **大范围字符串替换后必须跑测试**，不能只看 typecheck 通过。
+
+---
+
+## 2026-11-17 · `group.update` 曾经只改库、不推事件
+
+**问题**：协议 §6 定义了 `group.update` 事件（带 seq、可补发），客户端 `store.ts`
+也有 `case 'group.update'` 分支。但服务端的 `group.update` 处理器**只更新了数据库、
+写了一条审计，从来没 publish 过事件**。
+
+后果：A 改了群名，B 的界面要**刷新**才看得到；断线重连也补不回来（因为根本没有
+事件行可补）。
+
+**选择**：迁移已有的事件类型，不加新东西 —— 在同一个事务里
+①更新 conversations、②appendEvent('group.update')，提交后再 `hub.publish`。
+这样：
+- 在线成员立刻收到（含发起者的其它标签页）；
+- `resume` 能补发（事件带 seq、30 天内有效）；
+- 与数据模型 §4 的"消息/事件同事务"纪律一致。
+
+**为什么值得单独记**：这是"协议定义了、客户端也实现了、服务端却漏了"的空档 ——
+只测客户端或只测服务端都发现不了。现在 `ui-ux.mjs` 的 A3 段真跑：
+owner 改名 → 成员收到事件 → 成员断线期间再改名 → 重连 `resume` 补发到 →
+普通成员改名被 `PERM_DENIED` 拒绝。

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Member, Message } from '@agentlink/protocol';
 import { CreateGroupDialog } from './components/CreateGroupDialog.js';
 import { SearchPanel } from './components/SearchPanel.js';
+import { GroupInfoDialog } from './components/GroupInfoDialog.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { adminPath, navigate, useRoute } from './lib/router.js';
 import { ChatWindow } from './components/ChatWindow.js';
@@ -15,9 +16,13 @@ import { sendText } from './lib/sendText.js';
 import { guessMimeFromName, isImageMime, uploadAttachment } from './lib/attachments.js';
 import {
   loadPinned,
+  loadSidebarWidth,
   loadUnread,
   savePinned,
+  saveSidebarWidth,
   saveUnread,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
 } from './lib/localState.js';
 import { NARROW_QUERY, useMediaQuery } from './lib/useMediaQuery.js';
 
@@ -34,10 +39,13 @@ export function App(): React.JSX.Element {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [unread, setUnread] = useState<Record<string, number>>(() => loadUnread());
   // 打开会话那一刻的未读数：用来插"以下为新消息"分隔线
   const [unreadOnOpen, setUnreadOnOpen] = useState<Record<string, number>>({});
   const narrow = useMediaQuery(NARROW_QUERY);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => loadSidebarWidth());
+  const draggingSidebar = useRef(false);
   const [pinned, setPinned] = useState<string[]>(() => loadPinned());
   const [showMembers, setShowMembers] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -408,6 +416,31 @@ export function App(): React.JSX.Element {
     })();
   }, [activeConvId, messages, prependMessages, setError]);
 
+  /** 保存群名/公告（协议 §5.2 group.update）。服务端会推 group.update 事件。 */
+  const saveGroupInfo = useCallback(
+    async (patch: { title?: string; announcement?: string }) => {
+      const client = clientRef.current;
+      if (client === null || activeConvId === null) return;
+      const data = await client.call<{ conv: Conversation }>('group.update', {
+        conv_id: activeConvId,
+        ...patch,
+      });
+      upsertConv(data.conv);
+    },
+    [activeConvId, upsertConv],
+  );
+
+  /** 标记某个会话已读（清本地未读计数）。 */
+  const markRead = useCallback((convId: string) => {
+    setUnread((prev) => {
+      if ((prev[convId] ?? 0) === 0) return prev;
+      const next = { ...prev };
+      delete next[convId];
+      saveUnread(next);
+      return next;
+    });
+  }, []);
+
   const togglePin = useCallback((convId: string) => {
     setPinned((prev) => {
       const next = prev.includes(convId)
@@ -431,6 +464,31 @@ export function App(): React.JSX.Element {
     return data.conv.id;
   }, [upsertConv, setActiveConv]);
 
+  // 侧栏宽度拖拽：按下手柄后跟踪全局鼠标，松开时持久化
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (!draggingSidebar.current) return;
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, e.clientX));
+      setSidebarWidth(next);
+    };
+    const onUp = (): void => {
+      if (!draggingSidebar.current) return;
+      draggingSidebar.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setSidebarWidth((w) => {
+        saveSidebarWidth(w);
+        return w;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
   // 快捷键：Ctrl/Cmd+K 搜索，Esc 关闭面板
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -441,6 +499,7 @@ export function App(): React.JSX.Element {
       if (e.key === 'Escape') {
         setShowSearch(false);
         setShowCreateDialog(false);
+        setShowGroupInfo(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -488,7 +547,7 @@ export function App(): React.JSX.Element {
   return (
     <div className="flex h-full">
       {!narrowShowChat && (showSearch ? (
-        <div className="w-[300px] shrink-0">
+        <div className="shrink-0" style={{ width: sidebarWidth }}>
           <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
         </div>
       ) : (
@@ -504,8 +563,33 @@ export function App(): React.JSX.Element {
           unread={unread}
           pinned={pinned}
           onTogglePin={togglePin}
+          onMarkRead={markRead}
+          width={sidebarWidth}
         />
       ))}
+
+      {!narrow && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title="拖拽调整侧栏宽度"
+          onMouseDown={() => {
+            draggingSidebar.current = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+          }}
+          onDoubleClick={() => {
+            setSidebarWidth(300);
+            saveSidebarWidth(300);
+          }}
+          style={{
+            width: 5,
+            cursor: 'col-resize',
+            background: 'var(--al-border)',
+            flex: '0 0 auto',
+          }}
+        />
+      )}
 
       {activeConv === null ? (
         narrowShowList ? null : (
@@ -535,6 +619,8 @@ export function App(): React.JSX.Element {
           onJumpToMessage={jumpToMessage}
           unreadOnOpen={unreadOnOpen[activeConv.id] ?? 0}
           {...(narrow ? { onBack: () => setActiveConv(null) } : {})}
+          onOpenGroupInfo={() => setShowGroupInfo(true)}
+          canEditGroup={myRole === 'owner' || myRole === 'admin'}
         />
       )}
 
@@ -615,6 +701,16 @@ export function App(): React.JSX.Element {
         >
           {lastError}
         </div>
+      )}
+
+      {showGroupInfo && activeConv !== null && (
+        <GroupInfoDialog
+          initialTitle={activeConv.title}
+          initialAnnouncement={activeConv.announcement}
+          canEdit={myRole === 'owner' || myRole === 'admin'}
+          onClose={() => setShowGroupInfo(false)}
+          onSave={saveGroupInfo}
+        />
       )}
 
       {showCreateDialog && (

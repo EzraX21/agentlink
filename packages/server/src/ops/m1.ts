@@ -7,7 +7,7 @@ import {
   updateGroup,
 } from '../services/conversations.js';
 import { requireRole } from '../permissions.js';
-import { findUserById, insertAudit } from '../db/queries.js';
+import { appendEvent, findUserById, insertAudit, transaction } from '../db/queries.js';
 import { newId, nowMs } from '../ids.js';
 
 /**
@@ -74,9 +74,22 @@ export function registerM1Handlers(handlers: HandlerMap): void {
     const data = validateData('group.update', ctx.rawData);
     requireRole(ctx.db, data.conv_id, ctx.state.userId, 'group.update');
 
-    const conv = updateGroup(ctx.db, data.conv_id, {
-      title: data.title,
-      announcement: data.announcement,
+    // 改群名/公告要和事件同一事务：否则可能出现"库里改了但没人收到"或
+    // "事件先于数据"的窗口（数据模型 §4 的同一条纪律）。
+    const { conv, seq } = transaction(ctx.db, () => {
+      const c = updateGroup(ctx.db, data.conv_id, {
+        title: data.title,
+        announcement: data.announcement,
+      });
+      // 协议 §6：group.update 带 seq、可补发 —— 别人的客户端靠它看到改名
+      const s = appendEvent(ctx.db, {
+        tenantId: 'default',
+        convId: data.conv_id,
+        type: 'group.update',
+        payload: JSON.stringify({ conv_id: data.conv_id, conv: c }),
+        createdAt: nowMs(),
+      });
+      return { conv: c, seq: s };
     });
 
     // 审计只写成功动作（施工守则 §8）
@@ -92,6 +105,14 @@ export function registerM1Handlers(handlers: HandlerMap): void {
         ...(data.announcement === undefined ? {} : { announcement: data.announcement }),
       }),
       createdAt: nowMs(),
+    });
+
+    // 推给群里所有人（包括发起者的其它标签页）。必须在事务提交之后推。
+    ctx.hub.publish({
+      type: 'group.update',
+      data: { conv_id: data.conv_id, conv },
+      seq,
+      convId: data.conv_id,
     });
 
     return { conv };
