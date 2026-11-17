@@ -753,6 +753,7 @@ export function App(): React.JSX.Element {
           onJumpToMessage={jumpToMessage}
           pendingLocalIds={pendingIds}
           typing={typing}
+          online={connected}
           onTyping={() => {
             const client = clientRef.current;
             if (client === null || activeConvId === null) return;

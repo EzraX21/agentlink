@@ -156,6 +156,47 @@ describe('上传失败可重试', () => {
   });
 });
 
+describe('离线时发附件', () => {
+  it('直接说明"附件需要在线时发送"，不去撞网络错误', async () => {
+    const onSendAttachment = vi.fn();
+    render(
+      <ChatWindow
+        convId="c_01M7JD0000000000000000000A"
+        convTitle="测试群"
+        announcement=""
+        messages={[]}
+        streaming={{}}
+        selfId="u_a"
+        members={[]}
+        onSend={vi.fn()}
+        onSendAttachment={onSendAttachment}
+        onJumpToMessage={vi.fn()}
+        onRevoke={vi.fn()}
+        onInterrupt={vi.fn()}
+        onLoadMore={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onToggleMembers={vi.fn()}
+        canRevokeOthers={false}
+        highlightMessageId={null}
+        online={false}
+      />,
+    );
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', {
+      value: [new File(['x'], 'a.png', { type: 'image/png' })],
+      configurable: true,
+    });
+    fireEvent.change(input);
+
+    await waitFor(() =>
+      expect(screen.getByText(/附件需要在线时发送/)).toBeTruthy(),
+    );
+    expect(onSendAttachment).not.toHaveBeenCalled();
+  });
+});
+
 describe('气泡之间 ↑↓ 导航', () => {
   const convId = 'c_01M7JD0000000000000000000A';
   function mkMsg(i: number): Message {

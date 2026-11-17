@@ -44,6 +44,8 @@ interface Props {
   typing?: Record<string, number>;
   /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
   onTyping?: () => void;
+  /** 当前是否在线：离线时不允许发附件（附件必须先上传成功才能排队）。 */
+  online?: boolean;
   /** 窄屏时显示返回按钮（回到会话列表）。 */
   onBack?: () => void;
   /** 点标题 / 群信息按钮：查看（有权限则可改）群名与公告。 */
@@ -111,6 +113,7 @@ export function ChatWindow({
   pendingLocalIds,
   typing,
   onTyping,
+  online = true,
   onBack,
   onOpenGroupInfo,
   canEditGroup = false,
@@ -347,6 +350,15 @@ export function ChatWindow({
   async function sendFiles(files: FileList | File[]): Promise<void> {
     const list = [...files];
     if (list.length === 0) return;
+
+    // 离线时附件无法排队（附件要先上传到服务端拿到 attachment_id 才能进消息），
+    // 所以这里直接说清楚，而不是让它撞一次网络错误再显示"上传失败"。
+    if (!online) {
+      setUploadError('附件需要在线时发送；文字消息会自动排队，恢复连接后发出。');
+      setFailedFiles([]);
+      return;
+    }
+
     setUploadError(null);
     setFailedFiles([]);
     for (const file of list) {
