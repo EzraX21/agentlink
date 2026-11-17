@@ -23,6 +23,8 @@ interface Props {
   highlighted?: boolean;
   /** 还在离线发件箱里（尚未送达服务端）。 */
   pending?: boolean;
+  /** 键盘：在气泡上按 Enter/空格打开操作菜单（焦点位置由调用方算）。 */
+  onOpenMenuByKeyboard?: (message: Message, element: HTMLElement) => void;
 }
 
 /**
@@ -42,6 +44,7 @@ export function MessageBubble({
   onJumpToQuote,
   highlighted,
   pending,
+  onOpenMenuByKeyboard,
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
@@ -65,6 +68,20 @@ export function MessageBubble({
         }
       }}
       data-message-id={message.id}
+      // 键盘可达：气泡能聚焦，Enter/空格等价于右键（打开操作菜单）
+      tabIndex={onOpenMenuByKeyboard === undefined ? -1 : 0}
+      role="article"
+      aria-label={`${message.sender.display_name}：${message.content
+        .map((b) => (b.type === 'text' ? b.text : b.type === 'image' ? '图片' : '文件'))
+        .join(' ')
+        .slice(0, 80)}`}
+      onKeyDown={(e) => {
+        if (onOpenMenuByKeyboard === undefined) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenMenuByKeyboard(message, e.currentTarget);
+        }
+      }}
     >
       <div className="w-[34px] shrink-0">
         {showSender && (

@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageBubble } from './MessageBubble.js';
 import { MessageContextMenu, type ContextMenuTarget } from './MessageContextMenu.js';
 import { clearDraft, loadDraft, saveDraft } from '../lib/localState.js';
+import { REDUCED_MOTION_QUERY, useMediaQuery } from '../lib/useMediaQuery.js';
 import { api } from '../lib/api.js';
 import { Excerpt } from './SearchPanel.js';
 
@@ -108,6 +109,7 @@ export function ChatWindow({
   canEditGroup = false,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -239,11 +241,13 @@ export function ChatWindow({
   const scrollToBottom = useCallback(
     (behavior: 'auto' | 'smooth' = 'auto') => {
       if (rows.length === 0) return;
-      virtualizer.scrollToIndex(rows.length - 1, { align: 'end', behavior });
+      // 用户要求减少动效时不要平滑滚动（晕动症）
+      const effective = reducedMotion ? 'auto' : behavior;
+      virtualizer.scrollToIndex(rows.length - 1, { align: 'end', behavior: effective });
       setAtBottom(true);
       setNewWhileScrolledUp(0);
     },
-    [rows.length, virtualizer],
+    [rows.length, virtualizer, reducedMotion],
   );
 
   // 新消息到达：在底部就跟随，否则累计"未读数"
@@ -511,6 +515,10 @@ export function ChatWindow({
                       }}
                       onContextMenu={(e, message) => {
                         setMenu({ message, x: e.clientX, y: e.clientY });
+                      }}
+                      onOpenMenuByKeyboard={(message, el) => {
+                        const rect = el.getBoundingClientRect();
+                        setMenu({ message, x: rect.left + 40, y: rect.top + 24 });
                       }}
                     />
                   )}

@@ -292,6 +292,28 @@ export async function run(ctx) {
     '重发复用同一个 client_msg_id（服务端按幂等键去重）',
   );
 
+  section('B1f. 附件下载进度 / 减少动效 / 气泡键盘可达');
+  const attach2 = await readFile(`${repoRoot}/packages/web/src/lib/attachments.ts`, 'utf8');
+  includes(attach2, 'downloadAttachment', '有"点击下载"的实现（不预载文件）');
+  includes(attach2, "xhr.onprogress", '下载也监听进度（fetch 读不了下载流）');
+  const blocksSrc = await readFile(
+    `${repoRoot}/packages/web/src/components/AttachmentBlocks.tsx`,
+    'utf8',
+  );
+  includes(blocksSrc, '下载中', '文件卡片显示下载进度');
+  includes(blocksSrc, "role=\"progressbar\"", '下载进度条有 progressbar 语义');
+
+  const cssSrc = await readFile(`${repoRoot}/packages/web/src/styles.css`, 'utf8');
+  includes(cssSrc, 'prefers-reduced-motion: reduce', 'CSS 尊重系统的"减少动效"设置');
+  includes(cssSrc, 'animation-duration: 0.001ms', '减少动效时关掉动画');
+  const mediaSrc = await readFile(`${repoRoot}/packages/web/src/lib/useMediaQuery.ts`, 'utf8');
+  includes(mediaSrc, 'REDUCED_MOTION_QUERY', '有 reduced-motion 的查询常量');
+  includes(src.chat, 'reducedMotion', '聊天窗平滑滚动会遵循设置');
+
+  includes(src.bubble, 'onOpenMenuByKeyboard', '气泡支持键盘打开菜单');
+  includes(src.bubble, 'role="article"', '气泡有 article 语义（读屏可定位）');
+  includes(src.bubble, 'aria-label', '气泡带发送者与内容摘要');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -307,7 +329,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 79, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥79）`);
+  gte(Number(passed?.[1] ?? 0), 83, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥83）`);
 
   a.close();
   b.close();

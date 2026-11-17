@@ -532,3 +532,38 @@ DOM 里只有一条、标记消失。
 
 **阈值 0.5%**：同机重复跑噪声在 0～0.3%（字体抗锯齿、虚拟滚动亚像素），
 而真实配色/版式改动是 1%+ 量级（实测把 `--al-primary` 改掉后是 1.3%/1.17%）。
+
+---
+
+## 2026-11-17 · 文件"点击才下载"、下载也要进度、动效要能关
+
+**1. 文件卡片从"预载 + 链接"改成"点击下载"**
+
+原来文件卡片挂载时就去取字节（为了给 `<a download>` 一个 blob URL）。问题是：
+一个群里贴了 20 个附件，进群就把 20 个文件全下载了 —— 流量和内存都浪费，
+而用户可能一个都不看。现在改成点击才取，并显示进度（`role="progressbar"`）。
+
+**2. 下载进度必须用 XHR**
+
+和上传一样：`fetch` 只能读**下载流**但拿不到 `progress` 事件（`fetch` 的
+`body.getReader()` 能自己算，但要手动拼流）。这里用 `XMLHttpRequest` 的
+`onprogress`，`responseType='blob'`，一次性拿到 Blob 再触发保存。
+
+**3. `prefers-reduced-motion`**
+
+系统的"减少动效"设置是给前庭功能敏感/晕动症用户用的。两层落实：
+- CSS：`@media (prefers-reduced-motion: reduce)` 把动画/过渡压到 0.001ms，
+  流式光标改成静态半透明；
+- JS：`scrollToBottom` 在开启时用 `behavior: 'auto'` 而不是 `'smooth'`
+  （CSS 的 `scroll-behavior` 管不到 JS 主动调用的平滑滚动）。
+
+**4. 消息气泡键盘可达**
+
+气泡原来只能右键打开操作菜单 —— 纯键盘用户没有等价入口。现在气泡
+`tabIndex=0` + `role="article"` + `aria-label="发送者：内容摘要"`，
+Enter/空格等价于右键。
+
+**测试归属的一个教训**：CSS 内容的断言我一开始写在组件单测里，用 Vite 的
+`?raw` 导入 —— 在 vitest 里被 Tailwind 插件处理后拿到**空字符串**，断言恒失败。
+把"CSS 里有没有写媒体查询"移到 `ui-ux` 验收脚本（Node 环境直接 `readFile`），
+组件单测只测 `useMediaQuery` 的行为 —— 各测各能测的东西。

@@ -79,7 +79,7 @@ describe('附件块渲染', () => {
     });
   });
 
-  it('文件块渲染成文件名 + 下载链接', async () => {
+  it('文件块渲染成文件名 + 下载按钮（点击才下载，带进度）', async () => {
     render(
       <MessageBubble
         message={baseMsg([
@@ -94,9 +94,8 @@ describe('附件块渲染', () => {
     );
     expect(screen.getByText('report.pdf')).toBeTruthy();
     expect(screen.getByText('2048 B')).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: '下载' })).toBeTruthy();
-    });
+    // 文件不预载：下载是个按钮（带 aria-label），不是链接
+    expect(screen.getByRole('button', { name: '下载 report.pdf' })).toBeTruthy();
   });
 
   it('文本 + 图片混排时两者都在', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   acquireAttachmentUrl,
+  downloadAttachment,
   formatBytes,
   releaseAttachmentUrl,
 } from '../lib/attachments.js';
@@ -173,25 +174,28 @@ export function FileBlockView({
   filename?: string | undefined;
   size?: number | undefined;
 }): React.JSX.Element {
-  const [url, setUrl] = useState<string | null>(null);
+  // 文件不预载：点下载时才取字节，并显示进度（大文件没有反馈会让人以为卡死）
+  const [percent, setPercent] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    acquireAttachmentUrl(attachmentId, filename ?? 'file')
-      .then((u) => {
-        if (alive) setUrl(u);
-      })
-      .catch((e: Error) => {
-        if (alive) setError(e.message);
-      });
-    return () => {
-      alive = false;
-      releaseAttachmentUrl(attachmentId);
-    };
-  }, [attachmentId, filename]);
-
   const name = filename ?? '文件';
+
+  async function startDownload(): Promise<void> {
+    if (downloading) return;
+    setDownloading(true);
+    setError(null);
+    setPercent(0);
+    try {
+      await downloadAttachment(attachmentId, name, { onProgress: (p) => setPercent(p) });
+      setPercent(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '下载失败');
+      setPercent(null);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div
@@ -213,20 +217,43 @@ export function FileBlockView({
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px]">{name}</div>
         <div className="al-muted text-[11px]">
-          {size !== undefined ? formatBytes(size) : error !== null ? error : '文件'}
+          {error !== null
+            ? error
+            : downloading
+              ? percent === null
+                ? '下载中…'
+                : `下载中 ${percent}%`
+              : size !== undefined
+                ? formatBytes(size)
+                : '文件'}
         </div>
+        {downloading && (
+          <div
+            style={{ height: 3, background: 'var(--al-border)', borderRadius: 2, marginTop: 3 }}
+            role="progressbar"
+            aria-valuenow={percent ?? undefined}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              style={{
+                width: percent === null ? '30%' : `${percent}%`,
+                height: '100%',
+                background: 'var(--al-primary)',
+                transition: 'width 120ms linear',
+              }}
+            />
+          </div>
+        )}
       </div>
-      {url !== null ? (
-        <a
-          className="al-btn-ghost shrink-0 !px-2 !py-0.5 text-[11px]"
-          href={url}
-          download={name}
-        >
-          下载
-        </a>
-      ) : (
-        <span className="al-muted shrink-0 text-[11px]">…</span>
-      )}
+      <button
+        className="al-btn-ghost shrink-0 !px-2 !py-0.5 text-[11px]"
+        onClick={() => void startDownload()}
+        disabled={downloading}
+        aria-label={`下载 ${name}`}
+      >
+        {downloading ? '…' : '下载'}
+      </button>
     </div>
   );
 }

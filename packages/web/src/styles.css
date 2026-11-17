@@ -198,6 +198,25 @@ body {
   }
 }
 
+/*
+ * 尊重系统的"减少动效"设置（前庭敏感/晕动症用户会开）。
+ * 装饰性动效一律关掉；功能性反馈（进度条宽度）也去掉过渡，避免抖动。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .al-streaming::after {
+    animation: none !important;
+    opacity: 0.45;
+  }
+}
+
 @keyframes al-blink {
   to {
     visibility: hidden;

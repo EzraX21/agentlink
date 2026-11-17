@@ -110,17 +110,79 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-async function fetchBlobUrl(attachmentId: string, filename: string): Promise<string> {
+function attachmentPath(attachmentId: string, filename: string): string {
   // 服务端只用 :id 定位文件，:filename 仅用于 URL 可读性
-  const path = `/api/attachments/${encodeURIComponent(attachmentId)}/${encodeURIComponent(
+  return `/api/attachments/${encodeURIComponent(attachmentId)}/${encodeURIComponent(
     filename || 'file',
   )}`;
-  const res = await fetch(path, { headers: authHeader() });
-  if (!res.ok) {
-    throw new Error(`附件读取失败 (${res.status})`);
-  }
-  const blob = await res.blob();
+}
+
+/** 带鉴权取回附件字节。用 XHR 是因为 fetch 无法报告**下载**进度。 */
+function fetchAttachmentBlob(
+  attachmentId: string,
+  filename: string,
+  onProgress?: (percent: number | null) => void,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', attachmentPath(attachmentId, filename));
+    const auth = authHeader();
+    if (auth.authorization !== undefined) xhr.setRequestHeader('authorization', auth.authorization);
+    xhr.responseType = 'blob';
+
+    xhr.onprogress = (e: ProgressEvent): void => {
+      if (onProgress === undefined) return;
+      onProgress(
+        e.lengthComputable && e.total > 0 ? Math.min(100, Math.round((e.loaded / e.total) * 100)) : null,
+      );
+    };
+    xhr.onerror = () => reject(new Error('附件读取失败（网络错误）'));
+    xhr.onabort = () => reject(new Error('下载已取消'));
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`附件读取失败 (${xhr.status})`));
+        return;
+      }
+      onProgress?.(100);
+      resolve(xhr.response as Blob);
+    };
+
+    if (signal !== undefined) signal.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send();
+  });
+}
+
+async function fetchBlobUrl(attachmentId: string, filename: string): Promise<string> {
+  const blob = await fetchAttachmentBlob(attachmentId, filename);
   return URL.createObjectURL(blob);
+}
+
+/**
+ * 下载附件并触发浏览器保存（用于文件卡片）。
+ *
+ * 不用 `<a href="/api/attachments/...">` 的原因：附件要 `Authorization` 头，
+ * 而普通链接带不了（同 `ImageBlockView` 的说明）。所以先带鉴权取字节，
+ * 再用临时 `<a download>` 交给浏览器保存。
+ */
+export async function downloadAttachment(
+  attachmentId: string,
+  filename: string,
+  opts: { onProgress?: (percent: number | null) => void; signal?: AbortSignal } = {},
+): Promise<void> {
+  const blob = await fetchAttachmentBlob(attachmentId, filename, opts.onProgress, opts.signal);
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'file';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // 交给浏览器读取需要一点时间，延迟回收
+    window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
 }
 
 /**

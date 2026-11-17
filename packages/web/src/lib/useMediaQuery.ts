@@ -30,3 +30,11 @@ export function useMediaQuery(query: string): boolean {
 
 /** 窄屏（手机/窄窗口）：单栏布局。 */
 export const NARROW_QUERY = '(max-width: 767px)';
+
+/**
+ * 用户是否要求减少动效。
+ *
+ * 系统级无障碍设置（前庭功能敏感、晕动症用户会开）：
+ * 我们得关掉平滑滚动、闪烁光标、过渡动画这类"装饰性"动效。
+ */
+export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';

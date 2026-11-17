@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
+import { renderHook } from '@testing-library/react';
+import { REDUCED_MOTION_QUERY, useMediaQuery } from '../lib/useMediaQuery.js';
 import { Modal } from './Modal.js';
+import { MessageBubble } from './MessageBubble.js';
 import { ChatWindow } from './ChatWindow.js';
 import { ConversationList } from './ConversationList.js';
 import type { Conversation } from '@agentlink/protocol';
@@ -137,6 +140,65 @@ describe('聊天窗可访问性', () => {
     expect(screen.getByLabelText('消息输入')).toBeTruthy();
     expect(screen.getByLabelText('发送消息')).toBeTruthy();
     expect(screen.getByLabelText('添加附件')).toBeTruthy();
+  });
+});
+
+describe('消息气泡可访问性', () => {
+  const msg = {
+    id: 'm_a11y',
+    conv_id: CONV.id,
+    seq: 1,
+    sender: { id: 'u_b', kind: 'human' as const, display_name: '小明' },
+    content: [{ type: 'text' as const, text: '一条消息' }],
+    reply_to: null,
+    state: 'final' as const,
+    interrupted: false,
+    created_at: 1,
+    revoked_at: null,
+  };
+
+  it('气泡可聚焦，Enter/空格打开操作菜单（等价于右键）', () => {
+    render(<ChatWindow {...chatProps({ messages: [msg] })} />);
+    const bubble = screen.getByRole('article');
+    expect(bubble.getAttribute('tabindex')).toBe('0');
+    expect(bubble.getAttribute('aria-label')).toContain('小明');
+    expect(bubble.getAttribute('aria-label')).toContain('一条消息');
+  });
+
+  it('Enter 触发键盘菜单回调', () => {
+    const onOpen = vi.fn();
+    // 直接渲染 MessageBubble 以隔离 ChatWindow 的菜单状态
+    render(
+      <MessageBubble
+        message={msg}
+        isSelf={false}
+        streamingText={undefined}
+        showSender
+        onRevoke={() => {}}
+        canRevoke={false}
+        onOpenMenuByKeyboard={onOpen}
+      />,
+    );
+    const bubble = screen.getByRole('article');
+    fireEvent.keyDown(bubble, { key: 'Enter' });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('减少动效（prefers-reduced-motion）', () => {
+  it('useMediaQuery 能读到"要求减少动效"的系统设置', () => {
+    // CSS 里那段媒体查询由 ui-ux 验收脚本检查（那边是 Node 环境，能直接读文件）
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === REDUCED_MOTION_QUERY,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+
+    expect(renderHook(() => useMediaQuery(REDUCED_MOTION_QUERY)).result.current).toBe(true);
+    expect(renderHook(() => useMediaQuery('(max-width: 767px)')).result.current).toBe(false);
+
+    vi.unstubAllGlobals();
   });
 });
 
