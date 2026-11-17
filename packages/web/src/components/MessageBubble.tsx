@@ -11,12 +11,19 @@ interface Props {
   onRevoke: (messageId: string) => void;
   onInterrupt?: (messageId: string) => void;
   canRevoke: boolean;
+  /** 被引用消息的摘要文本（reply_to 指向的那条）；null 表示无引用。 */
+  quote?: { author: string; text: string } | null;
+  /** 右键 / 长按弹出菜单。 */
+  onContextMenu?: (e: React.MouseEvent, message: Message) => void;
+  /** 点引用块跳到被引用消息。 */
+  onJumpToQuote?: (messageId: string) => void;
+  /** 高亮（从搜索结果跳过来时用）。 */
+  highlighted?: boolean;
 }
 
 /**
- * 消息气泡（需求确认书 §10.3）。
- * 自己的消息右侧主题色，他人左侧浅底；含头像、时间、昵称。
- * 流式消息逐字增长（`al-streaming` 的光标）。
+ * 消息气泡（需求确认书 §10.3：自己的右侧主题色、他人左侧浅底，含头像/昵称/时间）。
+ * 支持三种内容块（文本 / 图片 / 文件）、引用回复、流式光标、撤回态。
  */
 export function MessageBubble({
   message,
@@ -26,16 +33,28 @@ export function MessageBubble({
   onRevoke,
   onInterrupt,
   canRevoke,
+  quote,
+  onContextMenu,
+  onJumpToQuote,
+  highlighted,
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
-  // 流式消息只有文本；终态消息按块渲染（文本 / 图片 / 文件）
   const streamingTextOnly =
     streamingText ?? message.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
   const blocks: ContentBlock[] = message.content;
 
   return (
-    <div className={`flex gap-2 px-4 py-1 ${isSelf ? 'flex-row-reverse' : ''}`}>
+    <div
+      className={`flex gap-2 px-4 py-1 ${isSelf ? 'flex-row-reverse' : ''}`}
+      onContextMenu={(e) => {
+        if (onContextMenu !== undefined) {
+          e.preventDefault();
+          onContextMenu(e, message);
+        }
+      }}
+      data-message-id={message.id}
+    >
       <div className="w-[34px] shrink-0">
         {showSender && (
           <div
@@ -58,7 +77,33 @@ export function MessageBubble({
           </div>
         )}
 
-        <div className={`al-bubble ${isSelf ? 'al-bubble-self' : 'al-bubble-other'}`}>
+        <div
+          className={`al-bubble ${isSelf ? 'al-bubble-self' : 'al-bubble-other'}`}
+          style={
+            highlighted === true
+              ? { outline: '2px solid var(--al-primary)', outlineOffset: 2 }
+              : undefined
+          }
+        >
+          {quote !== null && quote !== undefined && !revoked && (
+            <button
+              type="button"
+              className="mb-1 block w-full max-w-full border-l-2 pl-2 text-left text-[12px]"
+              style={{ borderColor: 'var(--al-primary)', opacity: 0.85 }}
+              onClick={() => {
+                if (message.reply_to !== null && onJumpToQuote !== undefined) {
+                  onJumpToQuote(message.reply_to);
+                }
+              }}
+              title="跳到被引用的消息"
+            >
+              <span className="font-medium" style={{ color: 'var(--al-primary)' }}>
+                {quote.author}
+              </span>
+              <span className="al-muted block truncate">{quote.text}</span>
+            </button>
+          )}
+
           {revoked ? (
             <span className="al-muted italic">消息已撤回</span>
           ) : streaming ? (

@@ -13,6 +13,12 @@ import { useChat } from './lib/useChat.js';
 import { uuid } from './lib/format.js';
 import { sendText } from './lib/sendText.js';
 import { guessMimeFromName, isImageMime, uploadAttachment } from './lib/attachments.js';
+import {
+  loadPinned,
+  loadUnread,
+  savePinned,
+  saveUnread,
+} from './lib/localState.js';
 
 const PAGE_SIZE = 50;
 
@@ -26,10 +32,16 @@ export function App(): React.JSX.Element {
   const [authed, setAuthed] = useState<boolean>(loadTokens().access !== null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [unread, setUnread] = useState<Record<string, number>>(() => loadUnread());
+  const [pinned, setPinned] = useState<string[]>(() => loadPinned());
   const [showMembers, setShowMembers] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const route = useRoute();
   const clientRef = useRef<ProtocolClient | null>(null);
+  // 用 ref 读最新值：连接 effect 不能因为"当前打开的会话/自己 id"变化而重连
+  const selfIdRef = useRef<string | null>(null);
+  const activeConvRef = useRef<string | null>(null);
 
   const {
     self,
@@ -113,7 +125,20 @@ export function App(): React.JSX.Element {
 
     const client = new ProtocolClient(wsUrl(), {
       onState: (state) => setConnected(state === 'ready'),
-      onEvent: (evt) => handleEvent(evt),
+      onEvent: (evt) => {
+        handleEvent(evt);
+        if (evt.type === 'message.new') {
+          const data = evt.data as { conv_id: string; message: { sender: { id: string } } };
+          // 自己发的不算未读；当前打开的会话也不算
+          if (data.message.sender.id !== selfIdRef.current && data.conv_id !== activeConvRef.current) {
+            setUnread((prev) => {
+              const next = { ...prev, [data.conv_id]: (prev[data.conv_id] ?? 0) + 1 };
+              saveUnread(next);
+              return next;
+            });
+          }
+        }
+      },
       onResync: () => {
         void resync(client);
       },
@@ -184,12 +209,26 @@ export function App(): React.JSX.Element {
             tenant_id: 'default',
           });
           setIsAdmin(data.is_admin === true);
+          selfIdRef.current = data.user.id;
         } catch {
           /* 忽略 */
         }
       })();
     }
   }, [connected, self, setSelf]);
+
+  // 打开某个会话 → 清它的未读；同时把当前会话记进 ref 供事件回调判断
+  useEffect(() => {
+    activeConvRef.current = activeConvId;
+    if (activeConvId === null) return;
+    setUnread((prev) => {
+      if ((prev[activeConvId] ?? 0) === 0) return prev;
+      const next = { ...prev };
+      delete next[activeConvId];
+      saveUnread(next);
+      return next;
+    });
+  }, [activeConvId]);
 
   useEffect(() => {
     const client = clientRef.current;
@@ -214,7 +253,7 @@ export function App(): React.JSX.Element {
   }, [self, members, activeConvId]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, replyTo?: string) => {
       const client = clientRef.current;
       if (client === null || activeConvId === null) return;
       // 乐观插入 + 与服务端推送收敛，细节见 lib/sendText.ts 的注释
@@ -227,7 +266,7 @@ export function App(): React.JSX.Element {
           uuid,
           now: () => Date.now(),
         },
-        { convId: activeConvId, self, text },
+        { convId: activeConvId, self, text, replyTo },
       );
     },
     [activeConvId, self, replaceMessage, removeMessage, setError],
@@ -240,7 +279,7 @@ export function App(): React.JSX.Element {
    * 其余用 file 块（带 filename/size 便于客户端直接展示，不用再查元信息）。
    */
   const sendAttachment = useCallback(
-    async (file: File) => {
+    async (file: File, replyTo?: string) => {
       const client = clientRef.current;
       if (client === null || activeConvId === null) return;
 
@@ -259,7 +298,12 @@ export function App(): React.JSX.Element {
 
       const res = await client.call<{ message_id: string; seq: number; created_at: number }>(
         'message.send',
-        { conv_id: activeConvId, client_msg_id: uuid(), content },
+        {
+          conv_id: activeConvId,
+          client_msg_id: uuid(),
+          content,
+          ...(replyTo === undefined ? {} : { reply_to: replyTo }),
+        },
       );
       // 服务端也会推 message.new；这里按 id 幂等放入，避免等待推送造成的延迟感
       replaceMessage(activeConvId, {
@@ -268,7 +312,7 @@ export function App(): React.JSX.Element {
         seq: res.seq,
         sender: self ?? { id: '', kind: 'human', display_name: '我' },
         content,
-        reply_to: null,
+        reply_to: replyTo ?? null,
         state: 'final',
         interrupted: false,
         created_at: res.created_at,
@@ -296,8 +340,7 @@ export function App(): React.JSX.Element {
           );
           setMessages(convId, [...page.messages].reverse());
           setHasMore((prev) => ({ ...prev, [convId]: page.has_more }));
-          // 把目标消息标记出来，滚动由 ChatWindow 处理"到底"行为
-          void messageId;
+          setHighlightId(messageId);
         } catch (err) {
           setError(err instanceof Error ? err.message : '跳转失败');
         }
@@ -352,6 +395,16 @@ export function App(): React.JSX.Element {
     })();
   }, [activeConvId, messages, prependMessages, setError]);
 
+  const togglePin = useCallback((convId: string) => {
+    setPinned((prev) => {
+      const next = prev.includes(convId)
+        ? prev.filter((x) => x !== convId)
+        : [...prev, convId];
+      savePinned(next);
+      return next;
+    });
+  }, []);
+
   const createGroup = useCallback(async (title: string, memberIds: string[]): Promise<string> => {
     const client = clientRef.current;
     if (client === null) throw new Error('未连接');
@@ -364,6 +417,22 @@ export function App(): React.JSX.Element {
     setActiveConv(data.conv.id);
     return data.conv.id;
   }, [upsertConv, setActiveConv]);
+
+  // 快捷键：Ctrl/Cmd+K 搜索，Esc 关闭面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      if (e.key === 'Escape') {
+        setShowSearch(false);
+        setShowCreateDialog(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   function logout(): void {
     clientRef.current?.disconnect();
@@ -415,6 +484,9 @@ export function App(): React.JSX.Element {
           selfName={self?.display_name ?? '…'}
           onLogout={logout}
           onOpenSearch={() => setShowSearch(true)}
+          unread={unread}
+          pinned={pinned}
+          onTogglePin={togglePin}
         />
       )}
 
@@ -424,7 +496,9 @@ export function App(): React.JSX.Element {
         </div>
       ) : (
         <ChatWindow
+          convId={activeConv.id}
           convTitle={activeConv.title || '(无标题)'}
+          announcement={activeConv.announcement}
           messages={messages[activeConv.id] ?? []}
           streaming={streaming}
           selfId={self?.id ?? ''}
@@ -438,6 +512,7 @@ export function App(): React.JSX.Element {
           loadingMore={loadingMore}
           onToggleMembers={() => setShowMembers((v) => !v)}
           canRevokeOthers={myRole === 'owner' || myRole === 'admin'}
+          highlightMessageId={highlightId}
         />
       )}
 

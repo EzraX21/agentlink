@@ -69,6 +69,9 @@ describe('渲染冒烟', () => {
         selfName="我"
         onLogout={() => {}}
         onOpenSearch={() => {}}
+        unread={{}}
+        pinned={[]}
+        onTogglePin={() => {}}
       />,
     );
     expect(screen.getByText('测试群')).toBeTruthy();
@@ -78,7 +81,9 @@ describe('渲染冒烟', () => {
   it('聊天窗画出消息气泡、昵称与 agent 标记', () => {
     render(
       <ChatWindow
+        convId={conv.id}
         convTitle="测试群"
+        announcement=""
         messages={[msg('m1', '来自助手的话', false)]}
         streaming={{}}
         selfId="u_a"
@@ -105,7 +110,9 @@ describe('渲染冒烟', () => {
     const streamingMsg: Message = { ...msg('m2', '', false), state: 'streaming', seq: null };
     render(
       <ChatWindow
+        convId={conv.id}
         convTitle="测试群"
+        announcement=""
         messages={[streamingMsg]}
         streaming={{ m2: { text: '正在生成' } }}
         selfId="u_a"

@@ -38,6 +38,8 @@ export interface SendTextInput {
   readonly convId: string;
   readonly self: Self | null;
   readonly text: string;
+  /** 引用回复：被引用消息 id（协议 §5.3 的 reply_to）。 */
+  readonly replyTo?: string | undefined;
 }
 
 export interface SendTextResult {
@@ -64,7 +66,7 @@ export async function sendText(
     seq: null,
     sender: input.self ?? { id: '', kind: 'human', display_name: '我' },
     content,
-    reply_to: null,
+    reply_to: input.replyTo ?? null,
     state: 'final',
     interrupted: false,
     created_at: createdAt,
@@ -75,7 +77,12 @@ export async function sendText(
     // 2. 服务端确认（真实 id / seq）
     const res = await deps.call<{ message_id: string; seq: number; created_at: number }>(
       'message.send',
-      { conv_id: input.convId, client_msg_id: deps.uuid(), content },
+      {
+        conv_id: input.convId,
+        client_msg_id: deps.uuid(),
+        content,
+        ...(input.replyTo === undefined ? {} : { reply_to: input.replyTo }),
+      },
     );
 
     // 3. 让两条路径收敛成一条：先删掉占位，再放入权威消息
@@ -86,7 +93,7 @@ export async function sendText(
       seq: res.seq,
       sender: input.self ?? { id: '', kind: 'human', display_name: '我' },
       content,
-      reply_to: null,
+      reply_to: input.replyTo ?? null,
       state: 'final',
       interrupted: false,
       created_at: res.created_at,

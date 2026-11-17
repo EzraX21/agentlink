@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Member } from '@agentlink/protocol';
 import { avatarColor, initials } from '../lib/format.js';
 
@@ -25,6 +26,15 @@ export function MemberPanel({
 }: Props): React.JSX.Element {
   const canManage = myRole === 'owner' || myRole === 'admin';
   const isOwner = myRole === 'owner';
+  const [filter, setFilter] = useState('');
+  const visible = members.filter((m) => {
+    const q = filter.trim().toLowerCase();
+    if (q === '') return true;
+    return (
+      m.user.display_name.toLowerCase().includes(q) ||
+      m.user.id.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <aside className="al-panel flex w-[260px] flex-col">
@@ -38,8 +48,20 @@ export function MemberPanel({
         </button>
       </header>
 
+      <div className="px-2 pt-2">
+        <input
+          className="al-input text-xs"
+          placeholder="搜索成员…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+
       <div className="flex-1 overflow-y-auto p-2">
-        {members.map((m) => {
+        {filter.trim() !== '' && visible.length === 0 && (
+          <div className="al-muted p-2 text-center text-xs">没有匹配的成员</div>
+        )}
+        {visible.map((m) => {
           const isSelf = m.user_id === selfId;
           const muted = m.muted_until > Date.now();
           return (
