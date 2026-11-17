@@ -29,27 +29,73 @@ export interface UploadedAttachment {
   deduped: boolean;
 }
 
-/** 上传一个文件。≤ 20 MiB（服务端限制，超了会回 PAYLOAD_TOO_LARGE）。 */
-export async function uploadAttachment(file: File): Promise<UploadedAttachment> {
-  const form = new FormData();
-  form.append('file', file, file.name);
+export interface UploadProgress {
+  /** 已上传字节。 */
+  loaded: number;
+  /** 总字节（浏览器未必知道，可能是 0）。 */
+  total: number;
+  /** 0–100；total 未知时为 null（UI 显示不确定进度）。 */
+  percent: number | null;
+}
 
-  const res = await fetch('/api/attachments', {
-    method: 'POST',
-    headers: authHeader(),
-    body: form,
-  });
+/**
+ * 上传一个文件。≤ 20 MiB（服务端限制，超了会回 PAYLOAD_TOO_LARGE）。
+ *
+ * 用 XHR 而不是 fetch：**fetch 无法报告上传进度**（只有下载流可读），
+ * 而"传 20 MiB 文件时一点反馈都没有"是明显的体验缺陷。
+ * XHR 的 `upload.onprogress` 能给出已发送字节。
+ */
+export function uploadAttachment(
+  file: File,
+  opts: { onProgress?: (p: UploadProgress) => void; signal?: AbortSignal } = {},
+): Promise<UploadedAttachment> {
+  return new Promise<UploadedAttachment>((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
 
-  const text = await res.text();
-  const json = text === '' ? null : (JSON.parse(text) as unknown);
-  if (!res.ok) {
-    const err = (json as { error?: { code?: string; message?: string } } | null)?.error;
-    if (err?.code === 'PAYLOAD_TOO_LARGE') {
-      throw new Error('文件超过 20 MiB，无法上传');
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/attachments');
+    const auth = authHeader();
+    if (auth.authorization !== undefined) xhr.setRequestHeader('authorization', auth.authorization);
+    xhr.responseType = 'text';
+
+    xhr.upload.onprogress = (e: ProgressEvent): void => {
+      if (opts.onProgress === undefined) return;
+      const total = e.lengthComputable ? e.total : file.size;
+      opts.onProgress({
+        loaded: e.loaded,
+        total,
+        percent: total > 0 ? Math.min(100, Math.round((e.loaded / total) * 100)) : null,
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('上传失败（网络错误）'));
+    xhr.onabort = () => reject(new Error('上传已取消'));
+    xhr.onload = () => {
+      let json: unknown = null;
+      try {
+        json = xhr.responseText === '' ? null : JSON.parse(xhr.responseText);
+      } catch {
+        json = null;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const err = (json as { error?: { code?: string; message?: string } } | null)?.error;
+        if (err?.code === 'PAYLOAD_TOO_LARGE') {
+          reject(new Error('文件超过 20 MiB，无法上传'));
+          return;
+        }
+        reject(new Error(err?.message ?? `上传失败 (${xhr.status})`));
+        return;
+      }
+      resolve(json as UploadedAttachment);
+    };
+
+    if (opts.signal !== undefined) {
+      opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
     }
-    throw new Error(err?.message ?? `上传失败 (${res.status})`);
-  }
-  return json as UploadedAttachment;
+
+    xhr.send(form);
+  });
 }
 
 // ---------------------------------------------------------------------------

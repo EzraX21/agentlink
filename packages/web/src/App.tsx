@@ -279,11 +279,16 @@ export function App(): React.JSX.Element {
    * 其余用 file 块（带 filename/size 便于客户端直接展示，不用再查元信息）。
    */
   const sendAttachment = useCallback(
-    async (file: File, replyTo?: string) => {
+    async (file: File, replyTo?: string, onProgress?: (percent: number | null) => void) => {
       const client = clientRef.current;
       if (client === null || activeConvId === null) return;
 
-      const uploaded = await uploadAttachment(file);
+      // XHR 上传：fetch 拿不到上传进度
+      const uploaded = await uploadAttachment(file, {
+        ...(onProgress === undefined
+          ? {}
+          : { onProgress: (p) => onProgress(p.percent) }),
+      });
       const mime = uploaded.mime || guessMimeFromName(file.name);
       const content = isImageMime(mime)
         ? [{ type: 'image' as const, attachment_id: uploaded.attachment_id }]
@@ -513,6 +518,7 @@ export function App(): React.JSX.Element {
           onToggleMembers={() => setShowMembers((v) => !v)}
           canRevokeOthers={myRole === 'owner' || myRole === 'admin'}
           highlightMessageId={highlightId}
+          onJumpToMessage={jumpToMessage}
         />
       )}
 

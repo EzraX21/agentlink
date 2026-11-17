@@ -90,6 +90,7 @@ describe('渲染冒烟', () => {
         members={[member('u_a', '我', 'owner'), member('u_b', '助手')]}
         onSend={() => {}}
         onSendAttachment={async () => {}}
+        onJumpToMessage={() => {}}
         onRevoke={() => {}}
         onInterrupt={() => {}}
         onLoadMore={() => {}}
@@ -119,6 +120,7 @@ describe('渲染冒烟', () => {
         members={[member('u_a', '我', 'owner')]}
         onSend={() => {}}
         onSendAttachment={async () => {}}
+        onJumpToMessage={() => {}}
         onRevoke={() => {}}
         onInterrupt={() => {}}
         onLoadMore={() => {}}

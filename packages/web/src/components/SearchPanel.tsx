@@ -22,7 +22,7 @@ import { api } from '../lib/api.js';
  * 这里改成按 `<mark>` 切成片段、逐段用 React 文本节点渲染：
  * 标签以外的任何字符都只当纯文本，不存在注入面。
  */
-function Excerpt({ text }: { text: string }): React.JSX.Element {
+export function Excerpt({ text }: { text: string }): React.JSX.Element {
   const parts: Array<{ text: string; hit: boolean }> = [];
   const re = /<mark>(.*?)<\/mark>/gs;
   let last = 0;

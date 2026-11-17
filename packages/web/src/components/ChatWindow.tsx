@@ -4,6 +4,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageBubble } from './MessageBubble.js';
 import { MessageContextMenu, type ContextMenuTarget } from './MessageContextMenu.js';
 import { clearDraft, loadDraft, saveDraft } from '../lib/localState.js';
+import { api } from '../lib/api.js';
+import { Excerpt } from './SearchPanel.js';
 
 interface Props {
   convId: string;
@@ -15,8 +17,14 @@ interface Props {
   members: Member[];
   /** 发送文本；replyTo 为被引用消息 id（协议 §5.3 的 reply_to）。 */
   onSend: (text: string, replyTo?: string) => void;
-  /** 上传附件并作为消息发出。 */
-  onSendAttachment: (file: File, replyTo?: string) => Promise<void>;
+  /** 上传附件并作为消息发出；onProgress 用于进度条（XHR 才能拿到上传进度）。 */
+  onSendAttachment: (
+    file: File,
+    replyTo?: string,
+    onProgress?: (percent: number | null) => void,
+  ) => Promise<void>;
+  /** 会话内搜索命中后跳到那一条（由 App 负责按 seq 拉历史）。 */
+  onJumpToMessage: (convId: string, messageId: string, seq: number) => void;
   onRevoke: (messageId: string) => void;
   onInterrupt: (messageId: string) => void;
   onLoadMore: () => void;
@@ -74,6 +82,7 @@ export function ChatWindow({
   members,
   onSend,
   onSendAttachment,
+  onJumpToMessage,
   onRevoke,
   onInterrupt,
   onLoadMore,
@@ -92,6 +101,13 @@ export function ChatWindow({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [menu, setMenu] = useState<ContextMenuTarget | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Array<{ name: string; percent: number | null }>>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<Array<{ message_id: string; seq: number; excerpt: string }>>([]);
+  const [searchIdx, setSearchIdx] = useState(0);
+  const [searching, setSearching] = useState(false);
   const [showAnnouncement, setShowAnnouncement] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -107,6 +123,45 @@ export function ChatWindow({
   }, [convId]);
 
   const draftKey = convId;
+
+  // toast 2 秒后自动消失
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = window.setTimeout(() => setToast(null), 2000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  // 会话内搜索（250ms 去抖，限定当前会话）
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!searchOpen || q === '') {
+      setSearchHits([]);
+      setSearchIdx(0);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void api
+        .search({ q, convId, limit: 50 })
+        .then((r) => {
+          setSearchHits(r.hits);
+          setSearchIdx(0);
+        })
+        .catch(() => setSearchHits([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, convId, searchOpen]);
+
+  const jumpToHit = useCallback(
+    (index: number) => {
+      const hit = searchHits[index];
+      if (hit === undefined) return;
+      setSearchIdx(index);
+      onJumpToMessage(convId, hit.message_id, hit.seq);
+    },
+    [searchHits, convId, onJumpToMessage],
+  );
 
   // 输入草稿自动保存（每 300ms 最多写一次）
   useEffect(() => {
@@ -210,12 +265,18 @@ export function ChatWindow({
     setUploadError(null);
     for (const file of list) {
       setUploading((n) => n + 1);
+      setProgress((prev) => [...prev, { name: file.name, percent: 0 }]);
       try {
-        await onSendAttachment(file, replyTo?.id);
+        await onSendAttachment(file, replyTo?.id, (percent) => {
+          setProgress((prev) =>
+            prev.map((pp) => (pp.name === file.name ? { ...pp, percent } : pp)),
+          );
+        });
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : '附件发送失败');
       } finally {
         setUploading((n) => n - 1);
+        setProgress((prev) => prev.filter((pp) => pp.name !== file.name));
       }
     }
     setReplyTo(null);
@@ -231,10 +292,82 @@ export function ChatWindow({
           <div className="truncate font-semibold">{convTitle}</div>
           <div className="al-muted text-[11px]">{members.length} 位成员</div>
         </div>
-        <button className="al-btn-ghost" onClick={onToggleMembers}>
-          成员
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            className="al-btn-ghost"
+            title="在会话内搜索（Ctrl+F）"
+            onClick={() => {
+              setSearchOpen((v) => !v);
+              setSearchQuery('');
+              setSearchHits([]);
+            }}
+          >
+            🔍
+          </button>
+          <button className="al-btn-ghost" onClick={onToggleMembers}>
+            成员
+          </button>
+        </div>
       </header>
+
+      {searchOpen && (
+        <div
+          className="px-3 py-2 text-xs"
+          style={{ borderBottom: '1px solid var(--al-border)', background: 'var(--al-bg-sidebar)' }}
+        >
+          <div className="flex items-center gap-2">
+            <input
+              className="al-input"
+              placeholder="在这个会话里搜索…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  jumpToHit(searchIdx);
+                }
+                if (e.key === 'Escape') {
+                  setSearchOpen(false);
+                  e.stopPropagation();
+                }
+              }}
+              autoFocus
+            />
+            <span className="al-muted shrink-0">
+              {searching
+                ? '搜索中…'
+                : searchHits.length === 0
+                  ? searchQuery.trim() === ''
+                    ? ''
+                    : '无命中'
+                  : `${searchIdx + 1}/${searchHits.length}`}
+            </span>
+            <button
+              className="al-btn-ghost !px-2 !py-0.5"
+              disabled={searchHits.length === 0}
+              title="上一条（Shift+Enter）"
+              onClick={() => jumpToHit((searchIdx - 1 + searchHits.length) % searchHits.length)}
+            >
+              ↑
+            </button>
+            <button
+              className="al-btn-ghost !px-2 !py-0.5"
+              disabled={searchHits.length === 0}
+              title="下一条"
+              onClick={() => jumpToHit((searchIdx + 1) % searchHits.length)}
+            >
+              ↓
+            </button>
+            <button className="al-muted shrink-0" onClick={() => setSearchOpen(false)}>
+              ✕
+            </button>
+          </div>
+          {searchHits.length > 0 && searchHits[searchIdx] !== undefined && (
+            <div className="al-muted mt-1 truncate">
+              <Excerpt text={searchHits[searchIdx]?.excerpt ?? ''} />
+            </div>
+          )}
+        </div>
+      )}
 
       {announcement !== '' && showAnnouncement && (
         <div
@@ -365,6 +498,36 @@ export function ChatWindow({
           </div>
         )}
 
+        {progress.length > 0 && (
+          <div className="mb-1.5 space-y-1">
+            {progress.map((p) => (
+              <div key={p.name} className="text-[11px]">
+                <div className="al-muted mb-0.5 flex justify-between">
+                  <span className="truncate">{p.name}</span>
+                  <span className="shrink-0">{p.percent === null ? '上传中…' : `${p.percent}%`}</span>
+                </div>
+                <div
+                  style={{
+                    height: 3,
+                    background: 'var(--al-border)',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: p.percent === null ? '35%' : `${p.percent}%`,
+                      height: '100%',
+                      background: 'var(--al-primary)',
+                      transition: 'width 120ms linear',
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {uploadError !== null && (
           <div className="mb-1 text-[11px]" style={{ color: 'var(--al-danger)' }}>
             {uploadError}
@@ -401,7 +564,13 @@ export function ChatWindow({
                 : '写消息…（Enter 发送，Shift+Enter 换行）'
             }
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              // 输入框随内容增高（上限 140px，见 style.maxHeight）
+              const el = e.currentTarget;
+              el.style.height = 'auto';
+              el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Escape' && replyTo !== null) {
                 setReplyTo(null);
@@ -428,6 +597,16 @@ export function ChatWindow({
         </div>
       </footer>
 
+      {toast !== null && (
+        <div
+          className="fixed bottom-20 left-1/2 z-[80] -translate-x-1/2 rounded-full px-3 py-1.5 text-xs text-white"
+          style={{ background: 'rgb(0 0 0 / 72%)' }}
+          role="status"
+        >
+          {toast}
+        </div>
+      )}
+
       {menu !== null && (
         <MessageContextMenu
           target={menu}
@@ -441,7 +620,10 @@ export function ChatWindow({
           }}
           onRevoke={onRevoke}
           onCopy={(text) => {
-            void navigator.clipboard?.writeText(text).catch(() => undefined);
+            void navigator.clipboard
+              ?.writeText(text)
+              .then(() => setToast('已复制'))
+              .catch(() => setToast('复制失败（浏览器不允许）'));
           }}
           onJumpToQuote={(id) => {
             const idx = rows.findIndex((r) => r.kind === 'msg' && r.message.id === id);

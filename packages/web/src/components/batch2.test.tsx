@@ -78,6 +78,7 @@ function chatProps(overrides: Partial<React.ComponentProps<typeof ChatWindow>> =
     members: [self, other],
     onSend: vi.fn(),
     onSendAttachment: vi.fn(async () => {}),
+    onJumpToMessage: vi.fn(),
     onRevoke: vi.fn(),
     onInterrupt: vi.fn(),
     onLoadMore: vi.fn(),

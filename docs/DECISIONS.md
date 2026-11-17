@@ -403,3 +403,28 @@ substr(text, max(1, instr(text, q) - 40), 40)   -- 错
 这批只是把 UI 接上：右键"引用回复" → 输入区显示被引用摘要 → 发送带 `reply_to`
 → 气泡里渲染可点击的引用块。服务端行为也验过：引用不存在的消息、以及跨会话引用
 都会被 `NOT_FOUND` 拒绝（否则会泄漏别的会话的内容）。
+
+---
+
+## 2026-11-17 · 上传进度必须换 XHR；正文富文本不能拼 HTML
+
+**上传进度**：`fetch` 只能读**下载**流，**拿不到上传进度** —— 传 20 MiB 文件时界面
+一点反馈都没有，体验上像卡死。改用 `XMLHttpRequest` 的 `upload.onprogress`
+（`lib/attachments.ts` 的 `uploadAttachment`），并在输入区上方显示文件名 + 百分比 + 细进度条。
+`total` 未知时（浏览器不给 `lengthComputable`）显示不确定态，不假装知道百分比。
+
+**正文富文本**：为了让链接可点、`` `代码` `` 等宽显示，最省事的做法是把正文转成 HTML
+再 `dangerouslySetInnerHTML`。**同样是 XSS**：正文是任意用户输入。
+所以 `lib/richtext.ts` 只产出**结构化片段**
+（`text | url | code | codeblock | bold`），`RichText` 组件逐段渲染成 React 文本节点 /
+`<a>` / `<code>`，全程不拼 HTML 字符串。
+
+配套的两条安全细节：
+- 只把 `http(s)://` 与 `mailto:` 当链接，`javascript:` 一律按纯文本渲染；
+- 外链带 `rel="noopener noreferrer"`（防 `window.opener` 劫持）。
+
+**刻意不做斜体**：单个 `*` 在日常文本里太常见（`2*3*4`、`*.log`），误判比收益大。
+需求确认书也把富文本编辑器列在"明确不做"里 —— 这里只做**渲染**，不做编辑。
+
+**会话内搜索**：与全局搜索共用 `GET /api/search`，只是固定带上 `conv_id`；
+结果条显示 `n/m` 与 ↑↓ 跳转，命中片段复用同一个 `Excerpt`（按 `<mark>` 切分渲染）。

@@ -141,7 +141,7 @@ export async function run(ctx) {
 
   // 引用回复
   includes(src.chat, 'replyTo', '输入区支持选择被引用消息');
-  includes(src.chat, 'onSendAttachment(file, replyTo?.id)', '附件也带 reply_to');
+  includes(src.chat, 'onSendAttachment(file, replyTo?.id,', '附件也带 reply_to（并上报进度）');
   includes(src.chat, 'onSend(text, replyTo?.id)', '文本消息带 reply_to');
   includes(src.bubble, '跳到被引用的消息', '气泡里的引用块可点击跳转');
   includes(src.chat, '（消息未加载）', '引用的消息不在本地时有占位文案');
@@ -180,6 +180,27 @@ export async function run(ctx) {
   includes(src.app, "e.key.toLowerCase() === 'k'", 'Ctrl/Cmd+K 打开搜索');
   includes(src.app, "e.key === 'Escape'", 'Esc 关闭面板');
 
+  section('B1b. 第 2 批续：正文富文本 / 上传进度 / 会话内搜索');
+  const src2 = {
+    rich: await readFile(`${repoRoot}/packages/web/src/lib/richtext.ts`, 'utf8'),
+    richView: await readFile(`${repoRoot}/packages/web/src/components/RichText.tsx`, 'utf8'),
+    attach: await readFile(`${repoRoot}/packages/web/src/lib/attachments.ts`, 'utf8'),
+  };
+  includes(src2.rich, 'SAFE_URL', '只把 http(s)/mailto 当链接（挡 javascript:）');
+  includes(src2.rich, 'codeblock', '支持代码块');
+  includes(src2.richView, 'noopener', '外链带 rel=noopener');
+  ok(
+    !/dangerouslySetInnerHTML\s*=/.test(src2.richView),
+    'RichText 不用 dangerouslySetInnerHTML（正文是任意用户输入）',
+  );
+  includes(src.bubble, 'RichText', '消息气泡走 RichText 渲染');
+  includes(src2.attach, 'XMLHttpRequest', '上传用 XHR（fetch 拿不到上传进度）');
+  includes(src2.attach, 'upload.onprogress', '监听上传进度事件');
+  includes(src.chat, 'progress', '输入区显示上传进度');
+  includes(src.chat, '在这个会话里搜索…', '聊天窗有会话内搜索');
+  includes(src.chat, '下一条', '会话内搜索可跳下一条');
+  includes(src.chat, 'setToast', '复制后有提示');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -195,7 +216,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 33, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥33）`);
+  gte(Number(passed?.[1] ?? 0), 42, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥42）`);
 
   a.close();
   b.close();

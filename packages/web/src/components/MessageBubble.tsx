@@ -1,6 +1,7 @@
 import type { ContentBlock, Message } from '@agentlink/protocol';
 import { avatarColor, formatTime, initials } from '../lib/format.js';
 import { FileBlockView, ImageBlockView } from './AttachmentBlocks.js';
+import { RichText } from './RichText.js';
 
 interface Props {
   message: Message;
@@ -112,7 +113,12 @@ export function MessageBubble({
             <div className="flex flex-col gap-1.5">
               {blocks.map((block, i) => {
                 if (block.type === 'text') {
-                  return <span key={i}>{block.text}</span>;
+                  // URL / 行内代码 / 代码块 / 粗体；只产出文本节点，不拼 HTML
+                  return (
+                    <span key={i}>
+                      <RichText text={block.text} />
+                    </span>
+                  );
                 }
                 if (block.type === 'image') {
                   return (
