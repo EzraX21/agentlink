@@ -36,6 +36,7 @@
 | 扩展待做：回应/编辑/置顶/已读/转发 | ⏸ | — | `docs/PROPOSAL-protocol-ext.md` | 方案已就绪 |
 | **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
 | 外部 agent 流式回复（HTTP）+ Last-Event-ID | ✅ | 2026-11-17 | `run.mjs agent-http` | 51 |
+| 外部 agent 发附件（上传 + 便捷拼块） | ✅ | 2026-11-17 | `run.mjs agent-http` | 67 |
 
 ## 六条验收标准
 

@@ -150,6 +150,16 @@ export async function agentRoutes(app: FastifyInstance, services: AppServices): 
         content?: unknown;
         client_msg_id?: string;
         reply_to?: string;
+        /** 便捷写法：先上传到 /api/agent/attachments，再把返回的 id 放这里 */
+        attachments?: Array<{
+          attachment_id?: string;
+          type?: 'image' | 'file';
+          filename?: string;
+          width?: number;
+          height?: number;
+          size?: number;
+          mime?: string;
+        }>;
       } | null;
       if (body === null || typeof body !== 'object' || body.conv_id === undefined) {
         throw new AgentLinkError('VALIDATION_FAILED', '缺少 conv_id', {
@@ -157,15 +167,46 @@ export async function agentRoutes(app: FastifyInstance, services: AppServices): 
         });
       }
 
-      // 便捷写法：直接给 text，服务端包成 content 块；给 content 则原样用
-      const content =
-        body.content !== undefined
-          ? body.content
-          : typeof body.text === 'string'
-            ? [{ type: 'text', text: body.text }]
-            : undefined;
-      if (content === undefined) {
-        throw new AgentLinkError('VALIDATION_FAILED', '需要 text 或 content', {
+      /**
+       * 组装 content 块：
+       *   - 显式给 `content` → 原样使用（协议 §5.3 的块数组，最灵活）
+       *   - 给 `text` / `attachments` → 服务端拼块（外部 agent 的常见情况）
+       *
+       * 附件走 `/api/agent/attachments` 上传后拿到 `attachment_id`，
+       * 这里只负责把它放进消息里。真正属于哪个会话由这条消息决定，
+       * 下载权限也按"引用它的消息所在群"判定（与 Web 端一致）。
+       */
+      const ATTACHMENT_TYPES = new Set(['image', 'file']);
+      const blocks: unknown[] = [];
+      if (typeof body.text === 'string' && body.text !== '') {
+        blocks.push({ type: 'text', text: body.text });
+      }
+      for (const att of body.attachments ?? []) {
+        if (typeof att.attachment_id !== 'string' || att.attachment_id === '') {
+          throw new AgentLinkError('VALIDATION_FAILED', 'attachments[].attachment_id 必填', {
+            issues: [{ path: 'attachments.attachment_id', message: 'required' }],
+          });
+        }
+        const kind = att.type ?? 'file';
+        if (!ATTACHMENT_TYPES.has(kind)) {
+          throw new AgentLinkError('VALIDATION_FAILED', `不支持的附件类型 ${String(kind)}`, {
+            issues: [{ path: 'attachments.type', message: 'image | file' }],
+          });
+        }
+        blocks.push({
+          type: kind,
+          attachment_id: att.attachment_id,
+          ...(att.filename === undefined ? {} : { filename: att.filename }),
+          ...(att.mime === undefined ? {} : { mime: att.mime }),
+          ...(att.size === undefined ? {} : { size: att.size }),
+          ...(att.width === undefined ? {} : { width: att.width }),
+          ...(att.height === undefined ? {} : { height: att.height }),
+        });
+      }
+
+      const content = body.content !== undefined ? body.content : blocks;
+      if (Array.isArray(content) && content.length === 0) {
+        throw new AgentLinkError('VALIDATION_FAILED', '需要 text、content 或 attachments', {
           issues: [{ path: 'content', message: 'required' }],
         });
       }

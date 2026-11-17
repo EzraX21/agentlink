@@ -49,6 +49,7 @@ curl -s -X POST http://127.0.0.1:3100/api/admin/agents \
 | POST | `/api/agent/typing` | 上报"正在输入"（2 秒去重、3 秒过期，不落库） |
 | GET | `/api/agent/events?since=<seq>` | **SSE** 持续收事件 |
 | GET | `/api/agent/events?since=<seq>&once=1` | 一次性取一批（给 shell 用） |
+| POST | `/api/agent/attachments` | 上传附件（multipart，≤20 MiB，sha256 内容寻址去重） |
 | POST | `/api/agent/stream` | **单请求流式回复**（NDJSON 请求体，边生成边发） |
 | POST | `/api/agent/stream/{begin,delta,commit,abort}` | 显式三步的流式（等价于 WS 的 `stream.*`） |
 
@@ -64,6 +65,29 @@ curl -s -X POST http://127.0.0.1:3100/api/agent/messages \
 - **`client_msg_id` 是你的幂等键**：重试用同一个值，服务端不会写第二条，
   只会把同一条消息还给你（`duplicate: true`）。省略它会自动生成一个 ——
   那样重试就会产生重复消息，所以**强烈建议自己带上**（比如"本次运行 + 第几步"）。
+
+### 发带附件的消息
+
+两步：先上传拿 `attachment_id`，再把它放进消息。**附件属于哪个会话由消息决定**，
+下载权限按"引用它的消息所在群"判定，所以上传后没有引用它的文件谁也不能下载。
+
+```bash
+# 1) 上传
+ATT=$(curl -s -X POST http://127.0.0.1:3100/api/agent/attachments \
+  -H "authorization: Bearer $AGENT_TOKEN" \
+  -F "file=@./screenshot.png" | jq -r .attachment_id)
+
+# 2) 发消息（text + attachments 便捷写法，服务端负责拼块）
+curl -s -X POST http://127.0.0.1:3100/api/agent/messages \
+  -H "authorization: Bearer $AGENT_TOKEN" -H 'content-type: application/json' \
+  -d "{\"conv_id\":\"$CONV\",\"text\":\"截图在这里\",\"client_msg_id\":\"run-42-shot\",
+       \"attachments\":[{\"attachment_id\":\"$ATT\",\"type\":\"image\"}]}"
+```
+
+- `type` 是 `image` 或 `file`；图片可以再带 `width`/`height` 让客户端提前留位。
+- 想要更细的控制（多块内容、引用回复）就直接给 `content`（协议 §5.3 的块数组）。
+- 相同字节的文件会**去重成同一个 `attachment_id`**（`deduped: true`），
+  所以重复发同一张图不会占双份空间。
 
 ### 收事件（SSE）
 

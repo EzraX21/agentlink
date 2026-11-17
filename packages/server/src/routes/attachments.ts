@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import multipart from '@fastify/multipart';
 import { AgentLinkError } from '@agentlink/protocol';
 import type { AppServices } from '../services/index.js';
@@ -27,7 +27,15 @@ export async function attachmentRoutes(
     throwFileSizeLimit: false,
   });
 
-  app.post('/api/attachments', async (req, reply) => {
+  /**
+   * 上传处理：人类（`/api/attachments`）与外部 agent（`/api/agent/attachments`）
+   * 共用同一段逻辑 —— 同样的 20 MiB 上限、同样的 sha256 内容寻址、
+   * 同样的"上传者是普通用户/agent"身份。
+   *
+   * 分开两个路径只是为了 API 语义清楚（外部 agent 的入口都挂在 /api/agent 下），
+   * 实现上不该有两份。
+   */
+  const handleUpload = async (req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     try {
       const who = await requireUser(services, req.headers);
 
@@ -92,7 +100,11 @@ export async function attachmentRoutes(
       }
       return sendError(reply, err);
     }
-  });
+  };
+
+  app.post('/api/attachments', handleUpload);
+  // 外部 agent 的上传入口（同一个处理函数，只是路径挂在 /api/agent 下）
+  app.post('/api/agent/attachments', handleUpload);
 
   app.get<{ Params: { id: string; filename: string } }>(
     '/api/attachments/:id/:filename',

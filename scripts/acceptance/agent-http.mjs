@@ -285,6 +285,82 @@ export async function run(ctx) {
   });
   eq(outsiderStream.status, 403, '非成员建流 → 403');
 
+  section('9f. 附件：agent 上传 → 发消息带附件 → 人类能下载');
+  {
+    // 最小合法 PNG（1×1）
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const form = new FormData();
+    form.append('file', new Blob([png], { type: 'image/png' }), 'pixel.png');
+    const up = await fetch(`${ctx.baseUrl}/api/agent/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${agentToken}` },
+      body: form,
+    });
+    eq(up.status, 201, 'agent 上传附件 → 201');
+    const upBody = await up.json();
+    gte(upBody.attachment_id.length, 10, `拿到 attachment_id`);
+    eq(upBody.mime, 'image/png', 'mime 保留');
+    eq(upBody.size, png.byteLength, '字节数正确');
+
+    // 先把 WS 队列里之前几轮产生的 message.new 清掉，否则会读到旧事件
+    await ws.drain(200);
+
+    // 便捷写法：text + attachments
+    const withAtt = await http('POST', '/api/agent/messages', {
+      token: agentToken,
+      body: {
+        conv_id: conv.id,
+        text: '给你一张图',
+        client_msg_id: 'cmid-with-image',
+        attachments: [{ attachment_id: upBody.attachment_id, type: 'image' }],
+      },
+    });
+    eq(withAtt.status, 200, '带附件的消息 200');
+
+    const attEvt = await ws.nextEvent('message.new');
+    eq(attEvt.data.message.id, withAtt.body.message_id, '收到的是刚发的这条（不是队列里的旧事件）');
+    const blocks = attEvt.data.message.content;
+    eq(blocks.length, 2, '消息里有两个块：文本 + 图片');
+    eq(blocks[0].type, 'text', '第一个是文本');
+    eq(blocks[1].type, 'image', '第二个是图片');
+    eq(blocks[1].attachment_id, upBody.attachment_id, 'attachment_id 一致');
+
+    // 人类（群成员）能下载
+    const dl = await fetch(
+      `${ctx.baseUrl}/api/attachments/${upBody.attachment_id}/pixel.png`,
+      { headers: { authorization: `Bearer ${alice.access_token}` } },
+    );
+    eq(dl.status, 200, '群成员可以下载 agent 上传的附件');
+    eq(dl.headers.get('content-type'), 'image/png', 'content-type 正确');
+    const dlBytes = Buffer.from(await dl.arrayBuffer());
+    eq(dlBytes.byteLength, png.byteLength, '下载字节数与上传一致');
+
+    // 非成员不能下载
+    const dlOutsider = await fetch(
+      `${ctx.baseUrl}/api/attachments/${upBody.attachment_id}/pixel.png`,
+      { headers: { authorization: `Bearer ${other.body.access_token}` } },
+    );
+    ok(
+      dlOutsider.status === 403 || dlOutsider.status === 404,
+      `非成员下载被拒（${dlOutsider.status}）`,
+    );
+
+    // 同内容重复上传会去重（内容寻址）
+    const form2 = new FormData();
+    form2.append('file', new Blob([png], { type: 'image/png' }), 'same-bytes.png');
+    const up2 = await fetch(`${ctx.baseUrl}/api/agent/attachments`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${agentToken}` },
+      body: form2,
+    });
+    const up2Body = await up2.json();
+    eq(up2Body.attachment_id, upBody.attachment_id, '相同内容去重为同一个 attachment_id');
+    eq(up2Body.deduped, true, 'deduped = true');
+  }
+
   section('10. 定位：服务端不接模型，示例也不强制接');
   {
     const { readFile: read } = await import('node:fs/promises');
