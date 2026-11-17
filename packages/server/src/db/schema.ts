@@ -46,6 +46,14 @@ export const users = sqliteTable(
     /** agent 的属主。 */
     ownerUserId: text('owner_user_id').references((): AnySQLiteColumn => users.id),
     disabled: integer('disabled').notNull().default(0),
+    /**
+     * 全局管理员（Web 管理页的准入）。
+     *
+     * 数据模型 §1 没有这个字段，但"管理页"必须有个准入概念，否则任何人类账号
+     * 都能建 agent / 停用 agent / 读审计。属于"实现可以加字段"（数据模型 §1 开头）。
+     * 迁移 0003 加列，并把最早的人类账号提升为管理员（见该迁移）。
+     */
+    isAdmin: integer('is_admin').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [

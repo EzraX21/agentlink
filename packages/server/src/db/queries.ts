@@ -57,6 +57,185 @@ export function updateUserPassword(db: Db, id: string, passwordHash: string): vo
   db.update(users).set({ passwordHash }).where(eq(users.id, id)).run();
 }
 
+export function setUserAdmin(db: Db, id: string, isAdmin: boolean): void {
+  db.update(users)
+    .set({ isAdmin: isAdmin ? 1 : 0 })
+    .where(eq(users.id, id))
+    .run();
+}
+
+/** 已启用的管理员数量（用于"不能把最后一个管理员降级"）。 */
+export function countActiveAdmins(db: Db): number {
+  const row = db
+    .select({ n: sql<number>`count(*)` })
+    .from(users)
+    .where(
+      and(eq(users.kind, 'human'), eq(users.isAdmin, 1), eq(users.disabled, 0)),
+    )
+    .get();
+  return row?.n ?? 0;
+}
+
+/** 库里是否已经有任何人类管理员（注册时决定要不要自动授予第一个账号）。 */
+export function hasAnyAdmin(db: Db): boolean {
+  const row = db
+    .select({ n: sql<number>`count(*)` })
+    .from(users)
+    .where(and(eq(users.kind, 'human'), eq(users.isAdmin, 1)))
+    .get();
+  return (row?.n ?? 0) > 0;
+}
+
+/** 管理页概览用的计数（一条 SQL 取完，省得来回查）。 */
+export function adminStats(db: Db): {
+  humans: number;
+  agents: number;
+  admins: number;
+  disabledAgents: number;
+  disabledHumans: number;
+  convs: number;
+  messages: number;
+  events: number;
+} {
+  const row = db.get<{
+    humans: number;
+    agents: number;
+    admins: number;
+    disabled_agents: number;
+    disabled_humans: number;
+    convs: number;
+    messages: number;
+    events: number;
+  }>(sql`
+    SELECT
+      (SELECT count(*) FROM users WHERE kind = 'human') AS humans,
+      (SELECT count(*) FROM users WHERE kind = 'agent') AS agents,
+      (SELECT count(*) FROM users WHERE kind = 'human' AND is_admin = 1) AS admins,
+      (SELECT count(*) FROM users WHERE kind = 'agent' AND disabled = 1) AS disabled_agents,
+      (SELECT count(*) FROM users WHERE kind = 'human' AND disabled = 1) AS disabled_humans,
+      (SELECT count(*) FROM conversations) AS convs,
+      (SELECT count(*) FROM messages) AS messages,
+      (SELECT count(*) FROM events) AS events
+  `);
+  return {
+    humans: row?.humans ?? 0,
+    agents: row?.agents ?? 0,
+    admins: row?.admins ?? 0,
+    disabledAgents: row?.disabled_agents ?? 0,
+    disabledHumans: row?.disabled_humans ?? 0,
+    convs: row?.convs ?? 0,
+    messages: row?.messages ?? 0,
+    events: row?.events ?? 0,
+  };
+}
+
+/** 管理页的群组列表：全部会话 + 成员数 + 消息数，不要求调用者是成员。 */
+export function adminListConversations(
+  db: Db,
+  limit: number,
+): Array<{
+  id: string;
+  kind: 'group' | 'dm';
+  title: string;
+  createdBy: string;
+  createdAt: number;
+  memberCount: number;
+  messageCount: number;
+}> {
+  const rows = db.all<{
+    id: string;
+    kind: 'group' | 'dm';
+    title: string;
+    created_by: string;
+    created_at: number;
+    member_count: number;
+    message_count: number;
+  }>(sql`
+    SELECT c.id, c.kind, c.title, c.created_by, c.created_at,
+           (SELECT count(*) FROM memberships m WHERE m.conv_id = c.id) AS member_count,
+           (SELECT count(*) FROM messages msg WHERE msg.conv_id = c.id) AS message_count
+    FROM conversations c
+    ORDER BY c.created_at DESC
+    LIMIT ${limit}
+  `);
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+    memberCount: r.member_count,
+    messageCount: r.message_count,
+  }));
+}
+
+/**
+ * 管理页看某个群的成员（**不要求调用者是群成员**）。
+ * 协议 §5.5 的 member.* 要求调用者是群内 owner/admin；管理页是跨群视角，
+ * 所以单独开这条查询，权限由路由层的 is_admin 把关。
+ */
+export function adminListMembers(
+  db: Db,
+  convId: string,
+): Array<{
+  userId: string;
+  username: string;
+  displayName: string;
+  kind: 'human' | 'agent';
+  role: 'owner' | 'admin' | 'member';
+  mutedUntil: number;
+  joinedAt: number;
+}> {
+  return db
+    .select({
+      userId: memberships.userId,
+      username: users.username,
+      displayName: users.displayName,
+      kind: users.kind,
+      role: memberships.role,
+      mutedUntil: memberships.mutedUntil,
+      joinedAt: memberships.joinedAt,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(eq(memberships.convId, convId))
+    .orderBy(asc(memberships.joinedAt))
+    .all();
+}
+
+/** 审计日志可选过滤（管理页要按动作/操作者筛）。 */
+export function listAuditFiltered(
+  db: Db,
+  opts: { tenantId: string; limit: number; action?: string; actorId?: string },
+): AuditRow[] {
+  const where = [eq(auditLogs.tenantId, opts.tenantId)];
+  if (opts.action !== undefined && opts.action !== '') {
+    where.push(eq(auditLogs.action, opts.action));
+  }
+  if (opts.actorId !== undefined && opts.actorId !== '') {
+    where.push(eq(auditLogs.actorId, opts.actorId));
+  }
+  return db
+    .select()
+    .from(auditLogs)
+    .where(and(...where))
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+    .limit(opts.limit)
+    .all();
+}
+
+/** 审计日志里出现过的动作名（给管理页做筛选下拉）。 */
+export function listAuditActions(db: Db, tenantId: string): string[] {
+  return db
+    .select({ action: auditLogs.action })
+    .from(auditLogs)
+    .where(eq(auditLogs.tenantId, tenantId))
+    .groupBy(auditLogs.action)
+    .orderBy(asc(auditLogs.action))
+    .all()
+    .map((r) => r.action);
+}
+
 export function setUserDisabled(db: Db, id: string, disabled: boolean): void {
   db.update(users)
     .set({ disabled: disabled ? 1 : 0 })

@@ -2,7 +2,23 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AgentLinkError } from '@agentlink/protocol';
 import type { AppServices } from '../services/index.js';
-import { findUserById, listAgents, setUserDisabled, findUserByUsername } from '../db/queries.js';
+import {
+  adminListConversations,
+  adminListMembers,
+  adminStats,
+  findConversation,
+  findUsersByIds,
+  countActiveAdmins,
+  findUserById,
+  findUserByUsername,
+  hasAnyAdmin,
+  listAgents,
+  listAuditActions,
+  listAuditFiltered,
+  listHumans,
+  setUserAdmin,
+  setUserDisabled,
+} from '../db/queries.js';
 import { newId, nowMs } from '../ids.js';
 import { insertAudit } from '../db/queries.js';
 import { hashPassword } from '../auth/crypto.js';
@@ -74,7 +90,12 @@ async function requireUser(
   return { userId: identity.userId, kind: identity.kind };
 }
 
-/** 管理动作只允许人类（v1 自用；agent 不参与管理面）。 */
+/**
+ * 管理接口的准入：必须是**人类且是全局管理员**。
+ *
+ * 之前只检查 `kind === 'human'`，等于任何注册用户都能建 agent、停用 agent、读审计。
+ * 管理页要成立就必须有准入概念，见迁移 0003 与 docs/DECISIONS.md。
+ */
 async function requireHumanAdmin(
   services: AppServices,
   headers: Record<string, string | string[] | undefined>,
@@ -82,6 +103,10 @@ async function requireHumanAdmin(
   const who = await requireUser(services, headers);
   if (who.kind !== 'human') {
     throw new AgentLinkError('PERM_DENIED', '只有人类账号能调用管理接口', { action: 'admin' });
+  }
+  const user = findUserById(services.dbc.db, who.userId);
+  if (!user || user.isAdmin !== 1) {
+    throw new AgentLinkError('PERM_DENIED', '需要管理员权限', { action: 'admin' });
   }
   return { userId: who.userId };
 }
@@ -116,7 +141,11 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
         password: body.password,
       });
       const tokens = await services.auth.issueTokenPair(user.id, 'human');
-      return reply.code(201).send({ user: toUserSummary(user), ...tokens });
+      return reply.code(201).send({
+        user: toUserSummary(user),
+        is_admin: user.isAdmin === 1,
+        ...tokens,
+      });
     } catch (err) {
       return sendError(reply, err);
     }
@@ -131,6 +160,8 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
         user: toUserSummary(user),
         kind: user.kind,
         username: user.username,
+        // 前端据此决定要不要显示"管理"入口；真正的准入在服务端强制
+        is_admin: user.isAdmin === 1,
       });
     } catch (err) {
       return sendError(reply, err);
@@ -249,22 +280,25 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
   app.get('/api/admin/users', async (req, reply) => {
     try {
       await requireHumanAdmin(services, req.headers);
-      const rows = listAgents(services.dbc.db, 'default');
-      const humans = services.dbc.db
-        ? (await import('../db/queries.js')).listHumans(services.dbc.db, 'default')
-        : [];
+      const agents = listAgents(services.dbc.db, 'default');
+      const humans = listHumans(services.dbc.db, 'default');
       return reply.send({
         humans: humans.map((u) => ({
           id: u.id,
           username: u.username,
           display_name: u.displayName,
+          is_admin: u.isAdmin === 1,
+          disabled: u.disabled === 1,
           created_at: u.createdAt,
         })),
-        agents: rows.map((u) => ({
+        agents: agents.map((u) => ({
           id: u.id,
           username: u.username,
           display_name: u.displayName,
+          model: u.model,
           disabled: u.disabled === 1,
+          owner_user_id: u.ownerUserId,
+          created_at: u.createdAt,
         })),
       });
     } catch (err) {
@@ -275,10 +309,14 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
   app.get('/api/admin/audit', async (req, reply) => {
     try {
       await requireHumanAdmin(services, req.headers);
-      const q = req.query as { limit?: string; cursor?: string };
-      const limit = Math.min(Number(q.limit ?? '50') || 50, 200);
-      const { listAudit } = await import('../db/queries.js');
-      const { rows, hasMore } = listAudit(services.dbc.db, 'default', limit, q.cursor);
+      const q = req.query as { limit?: string; action?: string; actor_id?: string };
+      const limit = Math.min(Number(q.limit ?? '100') || 100, 500);
+      const rows = listAuditFiltered(services.dbc.db, {
+        tenantId: 'default',
+        limit,
+        ...(q.action === undefined ? {} : { action: q.action }),
+        ...(q.actor_id === undefined ? {} : { actorId: q.actor_id }),
+      });
       return reply.send({
         items: rows.map((r) => ({
           id: r.id,
@@ -289,7 +327,314 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
           detail: JSON.parse(r.detail) as unknown,
           created_at: r.createdAt,
         })),
-        has_more: hasMore,
+        actions: listAuditActions(services.dbc.db, 'default'),
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  // ---- 概览 ----
+
+  app.get('/api/admin/stats', async (req, reply) => {
+    try {
+      await requireHumanAdmin(services, req.headers);
+      return reply.send(adminStats(services.dbc.db));
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  // ---- 账号管理（人类）----
+
+  app.post('/api/admin/users', async (req, reply) => {
+    try {
+      const admin = await requireHumanAdmin(services, req.headers);
+      const body = parseBody(
+        z.object({
+          username: z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/, '只允许字母数字与 _ . -'),
+          display_name: z.string().min(1).max(64),
+          password: z.string().min(8).max(200),
+          is_admin: z.boolean().optional(),
+        }),
+        req.body,
+      );
+      const user = await services.auth.createHumanByAdmin({
+        username: body.username,
+        displayName: body.display_name,
+        password: body.password,
+        isAdmin: body.is_admin === true,
+      });
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: admin.userId,
+        action: 'user.create',
+        targetType: 'user',
+        targetId: user.id,
+        detail: JSON.stringify({ username: user.username, is_admin: body.is_admin === true }),
+        createdAt: nowMs(),
+      });
+      return reply.code(201).send({
+        user: toUserSummary(user),
+        username: user.username,
+        is_admin: user.isAdmin === 1,
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/admin/users/:id/disable', async (req, reply) => {
+    try {
+      const admin = await requireHumanAdmin(services, req.headers);
+      const user = findUserById(services.dbc.db, req.params.id);
+      if (!user || user.kind !== 'human') {
+        throw new AgentLinkError('NOT_FOUND', '人类账号不存在', { what: 'user' });
+      }
+      if (user.id === admin.userId) {
+        throw new AgentLinkError('PERM_DENIED', '不能停用自己', { action: 'user.disable' });
+      }
+      if (user.isAdmin === 1 && countActiveAdmins(services.dbc.db) <= 1) {
+        throw new AgentLinkError('CONFLICT', '不能停用最后一个管理员');
+      }
+      setUserDisabled(services.dbc.db, user.id, true);
+      services.auth.revokeUserTokens(user.id);
+      const closed = services.gateway.closeUserConnections(user.id, 1008, 'account disabled');
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: admin.userId,
+        action: 'user.disable',
+        targetType: 'user',
+        targetId: user.id,
+        detail: '{}',
+        createdAt: nowMs(),
+      });
+      return reply.send({ ok: true, connections_closed: closed });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/admin/users/:id/enable', async (req, reply) => {
+    try {
+      const admin = await requireHumanAdmin(services, req.headers);
+      const user = findUserById(services.dbc.db, req.params.id);
+      if (!user || user.kind !== 'human') {
+        throw new AgentLinkError('NOT_FOUND', '人类账号不存在', { what: 'user' });
+      }
+      setUserDisabled(services.dbc.db, user.id, false);
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: admin.userId,
+        action: 'user.enable',
+        targetType: 'user',
+        targetId: user.id,
+        detail: '{}',
+        createdAt: nowMs(),
+      });
+      return reply.send({ ok: true });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/admin/users/:id/admin', async (req, reply) => {
+    try {
+      const admin = await requireHumanAdmin(services, req.headers);
+      const body = parseBody(z.object({ granted: z.boolean() }), req.body);
+      const user = findUserById(services.dbc.db, req.params.id);
+      if (!user || user.kind !== 'human') {
+        throw new AgentLinkError('NOT_FOUND', '人类账号不存在', { what: 'user' });
+      }
+      if (!body.granted) {
+        if (user.id === admin.userId) {
+          throw new AgentLinkError('PERM_DENIED', '不能撤销自己的管理员权限', {
+            action: 'user.role.set',
+          });
+        }
+        if (user.isAdmin === 1 && countActiveAdmins(services.dbc.db) <= 1) {
+          throw new AgentLinkError('CONFLICT', '不能撤销最后一个管理员');
+        }
+      }
+      setUserAdmin(services.dbc.db, user.id, body.granted);
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: admin.userId,
+        action: body.granted ? 'user.grant_admin' : 'user.revoke_admin',
+        targetType: 'user',
+        targetId: user.id,
+        detail: '{}',
+        createdAt: nowMs(),
+      });
+      return reply.send({ ok: true, is_admin: body.granted });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  // ---- 群组管理（跨会话视角，不要求调用者是群成员）----
+
+  app.get('/api/admin/convs', async (req, reply) => {
+    try {
+      await requireHumanAdmin(services, req.headers);
+      const q = req.query as { limit?: string };
+      const limit = Math.min(Number(q.limit ?? '100') || 100, 500);
+      return reply.send({ items: adminListConversations(services.dbc.db, limit) });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  // ---- 群组成员管理（管理页跨群视角，不要求调用者是群成员）----
+
+  app.get<{ Params: { id: string } }>('/api/admin/convs/:id/members', async (req, reply) => {
+    try {
+      await requireHumanAdmin(services, req.headers);
+      const conv = findConversation(services.dbc.db, req.params.id);
+      if (!conv) throw new AgentLinkError('NOT_FOUND', '会话不存在', { what: 'conv' });
+      return reply.send({
+        conv: { id: conv.id, kind: conv.kind, title: conv.title },
+        members: adminListMembers(services.dbc.db, conv.id).map((m) => ({
+          user_id: m.userId,
+          username: m.username,
+          display_name: m.displayName,
+          kind: m.kind,
+          role: m.role,
+          muted_until: m.mutedUntil,
+          joined_at: m.joinedAt,
+        })),
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/admin/convs/:id/members', async (req, reply) => {
+    try {
+      const admin = await requireHumanAdmin(services, req.headers);
+      const body = parseBody(
+        z.object({ user_ids: z.array(z.string().min(1)).min(1).max(50) }),
+        req.body,
+      );
+      const conv = findConversation(services.dbc.db, req.params.id);
+      if (!conv) throw new AgentLinkError('NOT_FOUND', '会话不存在', { what: 'conv' });
+
+      const users = findUsersByIds(services.dbc.db, body.user_ids);
+      if (users.length !== body.user_ids.length) {
+        const found = new Set(users.map((u) => u.id));
+        throw new AgentLinkError(
+          'NOT_FOUND',
+          `用户不存在: ${body.user_ids.filter((id) => !found.has(id)).join(', ')}`,
+          { what: 'user' },
+        );
+      }
+
+      const at = nowMs();
+      const added: Array<{ id: string; display_name: string }> = [];
+      const { appendEvent, insertMembership, findMembership } = await import('../db/queries.js');
+      services.dbc.raw.transaction(() => {
+        for (const u of users) {
+          if (findMembership(services.dbc.db, conv.id, u.id)) continue;
+          insertMembership(services.dbc.db, {
+            convId: conv.id,
+            userId: u.id,
+            role: 'member',
+            isAgent: u.kind === 'agent' ? 1 : 0,
+            mutedUntil: 0,
+            joinedAt: at,
+          });
+          added.push({ id: u.id, display_name: u.displayName });
+        }
+        // 事件与成员写入同一事务（数据模型 §4 的同一条纪律）
+        for (const a of added) {
+          appendEvent(services.dbc.db, {
+            tenantId: 'default',
+            convId: conv.id,
+            type: 'member.join',
+            payload: JSON.stringify({ conv_id: conv.id, user_id: a.id }),
+            createdAt: at,
+          });
+        }
+      })();
+
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: admin.userId,
+        action: 'member.invite',
+        targetType: 'group',
+        targetId: conv.id,
+        detail: JSON.stringify({ user_ids: added.map((a) => a.id), via: 'admin_console' }),
+        createdAt: at,
+      });
+      return reply.send({ added: added.length, members: added });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post<{ Params: { id: string; userId: string } }>(
+    '/api/admin/convs/:id/members/:userId/remove',
+    async (req, reply) => {
+      try {
+        const admin = await requireHumanAdmin(services, req.headers);
+        const conv = findConversation(services.dbc.db, req.params.id);
+        if (!conv) throw new AgentLinkError('NOT_FOUND', '会话不存在', { what: 'conv' });
+        const { deleteMembership, findMembership, appendEvent } = await import(
+          '../db/queries.js'
+        );
+        const target = findMembership(services.dbc.db, conv.id, req.params.userId);
+        if (!target) throw new AgentLinkError('NOT_FOUND', '该用户不在群里', { what: 'user' });
+        if (target.role === 'owner') {
+          throw new AgentLinkError('PERM_DENIED', '不能移除群主（先在群里转移群主）', {
+            action: 'member.kick',
+          });
+        }
+        const at = nowMs();
+        services.dbc.raw.transaction(() => {
+          deleteMembership(services.dbc.db, conv.id, req.params.userId);
+          appendEvent(services.dbc.db, {
+            tenantId: 'default',
+            convId: conv.id,
+            type: 'member.leave',
+            payload: JSON.stringify({
+              conv_id: conv.id,
+              user_id: req.params.userId,
+              reason: 'kicked',
+            }),
+            createdAt: at,
+          });
+        })();
+        insertAudit(services.dbc.db, {
+          id: newId('e'),
+          tenantId: 'default',
+          actorId: admin.userId,
+          action: 'member.kick',
+          targetType: 'user',
+          targetId: req.params.userId,
+          detail: JSON.stringify({ conv_id: conv.id, via: 'admin_console' }),
+          createdAt: at,
+        });
+        return reply.send({ ok: true });
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    },
+  );
+
+  // ---- 引导信息：新库上"还没有管理员"时前端要能提示 ----
+
+  app.get('/api/admin/bootstrap', async (req, reply) => {
+    try {
+      const who = await requireUser(services, req.headers);
+      const user = findUserById(services.dbc.db, who.userId);
+      return reply.send({
+        needs_bootstrap_admin: !hasAnyAdmin(services.dbc.db),
+        is_admin: user?.isAdmin === 1,
       });
     } catch (err) {
       return sendError(reply, err);

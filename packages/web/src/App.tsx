@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Member, Message } from '@agentlink/protocol';
-import { AdminPanel } from './components/AdminPanel.js';
+import { CreateGroupDialog } from './components/CreateGroupDialog.js';
+import { AdminPage } from './pages/AdminPage.js';
+import { adminPath, navigate, useRoute } from './lib/router.js';
 import { ChatWindow } from './components/ChatWindow.js';
 import { ConversationList } from './components/ConversationList.js';
 import { LoginView } from './components/LoginView.js';
@@ -19,8 +21,10 @@ function wsUrl(): string {
 
 export function App(): React.JSX.Element {
   const [authed, setAuthed] = useState<boolean>(loadTokens().access !== null);
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showMembers, setShowMembers] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const route = useRoute();
   const clientRef = useRef<ProtocolClient | null>(null);
 
   const {
@@ -166,6 +170,7 @@ export function App(): React.JSX.Element {
           const data = (await me.json()) as {
             user: { id: string; display_name: string };
             kind: 'human' | 'agent';
+            is_admin?: boolean;
           };
           setSelf({
             id: data.user.id,
@@ -173,6 +178,7 @@ export function App(): React.JSX.Element {
             display_name: data.user.display_name,
             tenant_id: 'default',
           });
+          setIsAdmin(data.is_admin === true);
         } catch {
           /* 忽略 */
         }
@@ -311,6 +317,8 @@ export function App(): React.JSX.Element {
     setSelf(null);
     setConvs([]);
     setActiveConv(null);
+    setIsAdmin(false);
+    navigate('/');
   }
 
   if (!authed) {
@@ -323,6 +331,19 @@ export function App(): React.JSX.Element {
     );
   }
 
+  // 管理页是独立视图（需求确认书 §5：WebUI 管理面板），走 hash 路由
+  if (route.name === 'admin') {
+    return (
+      <AdminPage
+        selfId={self?.id ?? ''}
+        isAdmin={isAdmin}
+        section={route.section}
+        onBack={() => navigate('/')}
+        onCreateGroup={(title) => createGroup(title, [])}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full">
       <ConversationList
@@ -330,7 +351,7 @@ export function App(): React.JSX.Element {
         activeConvId={activeConvId}
         messages={messages}
         onSelect={setActiveConv}
-        onNewGroup={() => setShowAdmin(true)}
+        onNewGroup={() => setShowCreateDialog(true)}
         selfName={self?.display_name ?? '…'}
         onLogout={logout}
       />
@@ -418,9 +439,11 @@ export function App(): React.JSX.Element {
         <button className="al-btn-ghost" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
-        <button className="al-btn-ghost" onClick={() => setShowAdmin(true)}>
-          管理
-        </button>
+        {isAdmin && (
+          <button className="al-btn-ghost" onClick={() => navigate(adminPath('overview'))}>
+            管理
+          </button>
+        )}
       </div>
 
       {lastError !== null && (
@@ -434,8 +457,11 @@ export function App(): React.JSX.Element {
         </div>
       )}
 
-      {showAdmin && (
-        <AdminPanel onClose={() => setShowAdmin(false)} onCreateGroup={createGroup} />
+      {showCreateDialog && (
+        <CreateGroupDialog
+          onClose={() => setShowCreateDialog(false)}
+          onCreate={createGroup}
+        />
       )}
     </div>
   );

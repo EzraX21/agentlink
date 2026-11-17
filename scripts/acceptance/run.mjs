@@ -23,7 +23,14 @@ const serverDir = path.join(repoRoot, 'packages/server');
 // tsx 是 server 包的 devDependency，二进制在包自己的 .bin 下（pnpm 不做提升）。
 const tsxBin = path.join(serverDir, 'node_modules/.bin/tsx');
 
-export const MILESTONES = ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11'];
+/**
+ * 里程碑 M0–M11（docs/04 的施工顺序），外加封版后补的两个套件：
+ *   ui-admin —— Web 管理页（M6"管理面板"的补齐）
+ */
+export const MILESTONES = [
+  'm0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11',
+  'ui-admin',
+];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */
 const NEEDS_SERVER = new Set(MILESTONES);

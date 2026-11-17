@@ -20,6 +20,7 @@
 | M9 Agent SDK + 示例 agent | ✅ | 2026-11-16 | `run.mjs m9` | 37 |
 | M10 Docker 部署 | ✅ | 2026-11-17 | `run.mjs m10` | 47（真实容器） |
 | M11 插件钩子与多实例 | ✅ | 2026-11-17 | `run.mjs m11` | 36 |
+| *补：Web 管理页 | ✅ | 2026-11-17 | `run.mjs ui-admin` | 91 + 4 渲染测试 |
 
 ## 六条验收标准
 
@@ -29,7 +30,7 @@
 | 2 | agent 禁言某成员成功，动作出现在审计日志 | M5 | `m5` 断言 agent（admin 角色）踢人成功、`audit_logs` 有对应行且 `actor_id` 是 agent；失败动作不写审计 |
 | 3 | 杀掉 agent 进程 1 分钟再启动，凭 `last_seq` 拿回离线期间全部消息 | M3 / M9 | `m3` 断言 `resume` 补发 21..25、`replayed=5`、`gap=false`；`m9` 真 kill -9 服务端后 agent 自动重连并 resume |
 | 4 | 检索能按关键词 + 时间范围 + 发送者组合查回 | M8 | `m8` 断言四者组合精确命中；1 万条下查询 6.5–60.5ms（< 500ms） |
-| 5 | WebUI 能建群、拉人、停用 agent，操作立即生效 | M1 / M6 | `m6` 断言 store 状态逻辑 + jsdom 渲染；`m1` 断言 agent 停用/轮换 token 立即断开连接 |
+| 5 | WebUI 能建群、拉人、停用 agent，操作立即生效 | M1 / M6 / ui-admin | `ui-admin` 真跑管理页接口：建群、跨群拉人（被拉的人立刻能 `conv.get`）、停用 agent（连接立即 1008 断开）；`m1` 断言轮换 token 断开旧连接 |
 | 6 | `docker compose up` 从零起服务，刷新可用，重启不丢数据 | M10 | `m10` 真跑容器栈：`down -v` → `up` → 经 Caddy 访问 → `restart` 后数据仍在 |
 
 ## 怎么重跑

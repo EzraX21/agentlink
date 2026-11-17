@@ -47,7 +47,9 @@ export async function run(ctx) {
   const admin = await mkUser(http, 'admin1', '管理员');
   const member = await mkUser(http, 'member1', '普通成员');
   const victim = await mkUser(http, 'victim', '被踢的人');
-  const agentAcc = await mkAgent(http, admin.access_token, 'modbot', '管理助手');
+  // 建 agent 需要**全局管理员**（is_admin，见迁移 0003）。本脚本里第一个注册的
+  // owner 才是管理员；admin1 只是群内角色，不是全局管理员。
+  const agentAcc = await mkAgent(http, owner.access_token, 'modbot', '管理助手');
 
   const o = await connect(wsUrl, owner.access_token);
   const ad = await connect(wsUrl, admin.access_token);

@@ -1,6 +1,7 @@
 import type { Config } from '../config.js';
 import type { Db } from '../db/index.js';
 import {
+  hasAnyAdmin,
   findUserById,
   findUserByUsername,
   insertRefreshToken,
@@ -237,10 +238,39 @@ export class AuthService {
       username: input.username,
       displayName: input.displayName,
       passwordHash: await hashPassword(input.password),
+      // 第一个人类账号自动成为管理员：否则新库上没人能打开管理页（先有鸡还是先有蛋）
+      isAdmin: hasAnyAdmin(this.db) ? 0 : 1,
       createdAt: nowMs(),
     });
     const user = findUserById(this.db, id);
     if (!user) throw new AgentLinkError('CONFLICT', '注册失败');
+    return user;
+  }
+
+  /** 管理员在管理页里建人类账号（与自助注册同路径，但不自动授予管理员）。 */
+  async createHumanByAdmin(input: {
+    username: string;
+    displayName: string;
+    password: string;
+    isAdmin?: boolean;
+  }): Promise<UserRow> {
+    const existing = findUserByUsername(this.db, 'default', input.username);
+    if (existing) {
+      throw new AgentLinkError('CONFLICT', `用户名 ${input.username} 已存在`);
+    }
+    const id = newUserId();
+    insertUser(this.db, {
+      id,
+      tenantId: 'default',
+      kind: 'human',
+      username: input.username,
+      displayName: input.displayName,
+      passwordHash: await hashPassword(input.password),
+      isAdmin: input.isAdmin === true ? 1 : 0,
+      createdAt: nowMs(),
+    });
+    const user = findUserById(this.db, id);
+    if (!user) throw new AgentLinkError('CONFLICT', '创建账号失败');
     return user;
   }
 

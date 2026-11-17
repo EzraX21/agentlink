@@ -72,7 +72,10 @@ export async function run(ctx) {
     cwd: path.join(repoRoot, 'packages/web'),
     timeout: 120_000,
   });
-  includes(testOut.replace(/\u001b\[[0-9;]*m/g, ''), '5 passed', '组件渲染冒烟测试 5 项全部通过');
+  const plain = testOut.replace(/\u001b\[[0-9;]*m/g, '');
+  const passed = /Tests\s+(\d+) passed/.exec(plain);
+  ok(!/failed/.test(plain), 'web 单测没有失败项');
+  ok(passed !== null && Number(passed[1]) >= 5, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥5）`);
 
   section('M6.2 两个浏览器窗互聊：对端 200ms 内出现');
   const alice = await mkUser(http, 'alice', '爱丽丝');

@@ -22,6 +22,13 @@
       "when": 1794842886178,
       "tag": "0002_fts_trigger_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794880912352,
+      "tag": "0003_user_admin",
+      "breakpoints": true
     }
   ]
 }
