@@ -6,7 +6,7 @@ import { MessageContextMenu, type ContextMenuTarget } from './MessageContextMenu
 import { clearDraft, loadDraft, saveDraft } from '../lib/localState.js';
 import { REDUCED_MOTION_QUERY, useMediaQuery } from '../lib/useMediaQuery.js';
 import { api } from '../lib/api.js';
-import { Excerpt } from './SearchPanel.js';
+import { Excerpt } from './Excerpt.js';
 
 interface Props {
   convId: string;
@@ -116,6 +116,8 @@ export function ChatWindow({
   const [newWhileScrolledUp, setNewWhileScrolledUp] = useState(0);
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // 失败的文件留着，让用户不用重新选一遍（大文件重新选很烦）
+  const [failedFiles, setFailedFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [menu, setMenu] = useState<ContextMenuTarget | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -271,6 +273,27 @@ export function ChatWindow({
 
   const loadMoreGuard = useRef(false);
 
+  /**
+   * 在气泡之间用 ↑↓ 移动焦点。
+   *
+   * 注意：气泡是虚拟滚动的，DOM 里只有可见窗口的那几条，所以这里只能在
+   * **已渲染**的气泡之间移动；到边界时不拦截，让页面正常滚动。
+   * 要跨窗口连续导航需要"移动焦点 → 触发滚动 → 等渲染 → 再聚焦"，属于另一个复杂度层级。
+   */
+  function onMessageListKeyDown(e: React.KeyboardEvent): void {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const container = scrollRef.current;
+    if (container === null) return;
+    const nodes = [...container.querySelectorAll<HTMLElement>('[data-message-id]')];
+    const idx = nodes.findIndex((n) => n === document.activeElement);
+    if (idx < 0) return; // 焦点不在气泡上：保留浏览器默认（滚动页面）
+    const next = idx + (e.key === 'ArrowDown' ? 1 : -1);
+    const target = nodes[next];
+    if (target === undefined) return; // 到边界，交给滚动
+    e.preventDefault();
+    target.focus();
+  }
+
   function onScroll(): void {
     const el = scrollRef.current;
     if (!el) return;
@@ -303,6 +326,7 @@ export function ChatWindow({
     const list = [...files];
     if (list.length === 0) return;
     setUploadError(null);
+    setFailedFiles([]);
     for (const file of list) {
       setUploading((n) => n + 1);
       setProgress((prev) => [...prev, { name: file.name, percent: 0 }]);
@@ -314,6 +338,7 @@ export function ChatWindow({
         });
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : '附件发送失败');
+        setFailedFiles((prev) => [...prev, file]);
       } finally {
         setUploading((n) => n - 1);
         setProgress((prev) => prev.filter((pp) => pp.name !== file.name));
@@ -448,6 +473,7 @@ export function ChatWindow({
           aria-live="polite"
           aria-relevant="additions"
           aria-label={`${convTitle} 的消息`}
+          onKeyDown={onMessageListKeyDown}
         >
           {loadingMore && <div className="al-muted py-2 text-center text-xs">加载历史…</div>}
           {!hasMore && messages.length > 0 && (
@@ -607,8 +633,25 @@ export function ChatWindow({
         )}
 
         {uploadError !== null && (
-          <div className="mb-1 text-[11px]" style={{ color: 'var(--al-danger)' }}>
-            {uploadError}
+          <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--al-danger)' }}>
+            <span className="min-w-0 flex-1 truncate">{uploadError}</span>
+            {failedFiles.length > 0 && (
+              <button
+                className="al-btn-ghost shrink-0 !px-2 !py-0.5"
+                onClick={() => void sendFiles(failedFiles)}
+              >
+                重试（{failedFiles.length}）
+              </button>
+            )}
+            <button
+              className="al-muted shrink-0"
+              onClick={() => {
+                setUploadError(null);
+                setFailedFiles([]);
+              }}
+            >
+              忽略
+            </button>
           </div>
         )}
         {dragging && <div className="al-muted mb-1 text-[11px]">松手即发送</div>}

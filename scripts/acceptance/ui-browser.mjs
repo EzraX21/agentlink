@@ -217,6 +217,18 @@ export async function run(ctx) {
     const markText = await page.locator('mark').first().textContent();
     includes(markText ?? '', '浏览器', '命中片段里 <mark> 包住关键词');
     await page.screenshot({ path: path.join(SHOT_DIR, '06-search.png') });
+
+    // 搜索面板也是按需 chunk：打开搜索后才应出现在资源列表里
+    const afterSearchAssets = await page.evaluate(() =>
+      performance
+        .getEntriesByType('resource')
+        .map((e) => e.name)
+        .filter((n) => n.includes('/assets/')),
+    );
+    ok(
+      afterSearchAssets.some((n) => /SearchPanel-[^/]+\.js/.test(n)),
+      '搜索面板作为独立 chunk 被按需加载',
+    );
     await page.keyboard.press('Escape');
 
     section('7. 管理页（真实路由 + 五个分区 + 按需加载）');

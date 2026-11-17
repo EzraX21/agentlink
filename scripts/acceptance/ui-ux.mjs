@@ -314,6 +314,19 @@ export async function run(ctx) {
   includes(src.bubble, 'role="article"', '气泡有 article 语义（读屏可定位）');
   includes(src.bubble, 'aria-label', '气泡带发送者与内容摘要');
 
+  section('B1g. 失败可重试 + 气泡 ↑↓ 导航 + 按需加载');
+  includes(blocksSrc, '重试下载', '下载失败后按钮变「重试」');
+  includes(blocksSrc, 'reloadKey', '图片加载失败可重试');
+  includes(src.chat, 'failedFiles', '上传失败保留文件以便重试');
+  includes(src.chat, '重试（', '上传失败显示「重试（N）」');
+  includes(src.chat, 'onMessageListKeyDown', '气泡之间可用 ↑↓ 移动焦点');
+  includes(src.app, 'Suspense', '搜索面板按需加载（Suspense 兜底）');
+  const excerptExists = await readFile(
+    `${repoRoot}/packages/web/src/components/Excerpt.tsx`,
+    'utf8',
+  ).then(() => true).catch(() => false);
+  ok(excerptExists, 'Excerpt 独立成模块（否则 SearchPanel 会被提升回主包）');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -329,7 +342,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 83, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥83）`);
+  gte(Number(passed?.[1] ?? 0), 89, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥89）`);
 
   a.close();
   b.close();

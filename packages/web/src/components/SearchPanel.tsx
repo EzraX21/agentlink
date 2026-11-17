@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, SearchHit } from '@agentlink/protocol';
 import { api } from '../lib/api.js';
+import { Excerpt } from './Excerpt.js';
 
 /**
  * 全局搜索（协议 §1：搜索走 HTTP 控制面；§5.7 定义 hit 结构与 `<mark>` 片段）。
@@ -11,42 +12,6 @@ import { api } from '../lib/api.js';
  *   - 点结果跳到该会话
  *   - 搜索范围是"自己可见的会话"（服务端强制）
  */
-
-/**
- * 渲染服务端给的 excerpt（协议 §5.7：命中词用 `<mark>` 包裹）。
- *
- * **不用 dangerouslySetInnerHTML**：excerpt 是"消息原文 + <mark> 标签"，
- * 而消息原文是任意用户输入。直接当 HTML 插进去就是一个 XSS —— 有人发一条
- * `<img src=x onerror=...>` 就能在别人的浏览器里执行脚本。
- *
- * 这里改成按 `<mark>` 切成片段、逐段用 React 文本节点渲染：
- * 标签以外的任何字符都只当纯文本，不存在注入面。
- */
-export function Excerpt({ text }: { text: string }): React.JSX.Element {
-  const parts: Array<{ text: string; hit: boolean }> = [];
-  const re = /<mark>(.*?)<\/mark>/gs;
-  let last = 0;
-  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-    if (m.index > last) parts.push({ text: text.slice(last, m.index), hit: false });
-    parts.push({ text: m[1] ?? '', hit: true });
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push({ text: text.slice(last), hit: false });
-
-  return (
-    <div>
-      {parts.map((p, i) =>
-        p.hit ? (
-          <mark key={i} className="al-mark">
-            {p.text}
-          </mark>
-        ) : (
-          <span key={i}>{p.text}</span>
-        ),
-      )}
-    </div>
-  );
-}
 
 export interface SearchPanelProps {
   onPick: (convId: string, messageId: string, seq: number) => void;

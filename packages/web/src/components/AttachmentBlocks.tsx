@@ -37,6 +37,7 @@ export function ImageBlockView({
 }): React.JSX.Element {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -51,12 +52,23 @@ export function ImageBlockView({
       alive = false;
       releaseAttachmentUrl(attachmentId);
     };
-  }, [attachmentId, filename]);
+  }, [attachmentId, filename, reloadKey]);
 
   if (error !== null) {
     return (
-      <div className="al-muted text-[11px]">
-        [图片加载失败：{error}]
+      <div className="flex items-center gap-2 text-[11px]">
+        <span className="al-muted">[图片加载失败：{error}]</span>
+        <button
+          className="al-btn-ghost !px-2 !py-0.5"
+          onClick={() => {
+            setError(null);
+            // 重新挂载 effect：模块级缓存里可能留着失败态，重试前先释放
+            releaseAttachmentUrl(attachmentId);
+            setReloadKey((k) => k + 1);
+          }}
+        >
+          重试
+        </button>
       </div>
     );
   }
@@ -250,9 +262,9 @@ export function FileBlockView({
         className="al-btn-ghost shrink-0 !px-2 !py-0.5 text-[11px]"
         onClick={() => void startDownload()}
         disabled={downloading}
-        aria-label={`下载 ${name}`}
+        aria-label={error !== null ? `重试下载 ${name}` : `下载 ${name}`}
       >
-        {downloading ? '…' : '下载'}
+        {downloading ? '…' : error !== null ? '重试' : '下载'}
       </button>
     </div>
   );

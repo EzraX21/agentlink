@@ -8,6 +8,7 @@ import {
   type AdminMember,
 } from '../lib/api.js';
 import { adminPath, navigate, type AdminSection } from '../lib/router.js';
+import { Excerpt } from '../components/Excerpt.js';
 import { avatarColor, formatDay, initials } from '../lib/format.js';
 
 /**

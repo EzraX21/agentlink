@@ -1,7 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Member, Message } from '@agentlink/protocol';
 import { CreateGroupDialog } from './components/CreateGroupDialog.js';
-import { SearchPanel } from './components/SearchPanel.js';
+// 搜索面板按需加载：不进首屏 bundle
+const SearchPanel = lazy(() =>
+  import('./components/SearchPanel.js').then((m) => ({ default: m.SearchPanel })),
+);
 import { GroupInfoDialog } from './components/GroupInfoDialog.js';
 // 管理页按需加载：只有管理员会进，没必要压进首屏 bundle
 const AdminPage = lazy(() =>
@@ -675,7 +678,9 @@ export function App(): React.JSX.Element {
       <div className="flex min-h-0 flex-1">
       {!narrowShowChat && (showSearch ? (
         <div className="shrink-0" style={{ width: sidebarWidth }}>
-          <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
+          <Suspense fallback={<div className="al-muted p-3 text-xs">搜索面板加载中…</div>}>
+            <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
+          </Suspense>
         </div>
       ) : (
         <ConversationList
