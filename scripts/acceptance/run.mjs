@@ -294,13 +294,18 @@ async function runOne(name) {
       await handle.start({ ...scaleEnv, ...(mod.serverEnv ?? {}) });
       started = true;
     }
-    const { resetCounters, counters } = await import('./_assert.mjs');
+    const { resetCounters, counters, failureList } = await import('./_assert.mjs');
     resetCounters();
     await mod.run(ctx);
     const { failed } = counters();
     if (failed > 0) {
       // 断言失败与抛异常同等对待：没跑通就是没跑通（施工守则 §4）
-      throw new Error(`${failed} 项断言失败`);
+      // 把**具体哪条**断言失败带进摘要：只写"1 项断言失败"时，
+      // 看汇总的人（和我）都得重跑才能知道原因 —— 重跑还可能不复现。
+      const list = failureList();
+      const first = list[0] ?? '(未知断言)';
+      const more = list.length > 1 ? `（另 ${list.length - 1} 项）` : '';
+      throw new Error(`断言失败: ${first}${more}`);
     }
   } catch (err) {
     log(`\n\x1b[31m${name} 抛出异常\x1b[0m: ${err.message}`);

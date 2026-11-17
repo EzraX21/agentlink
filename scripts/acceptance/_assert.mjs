@@ -111,6 +111,11 @@ export function summary(name) {
   return 1;
 }
 
+/** 失败断言的描述列表（供 run.mjs 把"具体哪条"带进汇总）。 */
+export function failureList() {
+  return [...failures];
+}
+
 export function counters() {
   return { passed, failed };
 }
