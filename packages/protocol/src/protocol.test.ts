@@ -121,9 +121,10 @@ describe('op 注册表', () => {
       // 协议扩展（施工守则 §6.3：经用户批准后新增）
       // 见 docs/PROPOSAL-protocol-ext.md
       'typing.send',
+      'read.set',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(25);
+    expect(OP_NAMES.length).toBe(26);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {
@@ -234,11 +235,13 @@ describe('事件注册表', () => {
         'group.update',
         'typing',
         'poke',
+        // 协议扩展 §5（经批准）：已读水位是瞬时事件
+        'read.update',
       ].sort(),
     );
   });
 
-  it('只有 typing 与 poke 是瞬时事件（seq=null，不落库）', () => {
+  it('typing / poke / read.update 是瞬时事件（seq=null，不落库）', () => {
     expect([...PERSISTED_EVT_TYPES].sort()).toEqual(
       [
         'message.new',

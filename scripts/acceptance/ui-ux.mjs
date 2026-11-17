@@ -343,8 +343,9 @@ export async function run(ctx) {
 
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
-  // 已批准并落地的扩展不在这个清单里（typing.send 见 B1h 的正向断言）
-  for (const notAnOp of ['message.edit', 'reaction.add', 'message.pin', 'read.set', 'message.forward']) {
+  // 已批准并落地的扩展不在这里（typing.send / read.set 已实现，见 B1h 与 ext-read）。
+  // 这条清单要跟着实现进展更新 —— 之前忘了改，导致"已经加了还断言没加"。
+  for (const notAnOp of ['message.edit', 'reaction.add', 'message.pin', 'message.forward']) {
     ok(!protoOps.includes(notAnOp), `${notAnOp} 尚未加入协议（等下一批扩展）`);
   }
 

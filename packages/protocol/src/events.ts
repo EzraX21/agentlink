@@ -71,6 +71,13 @@ const PokeData = z.object({
   to_user_id: UserIdSchema,
 });
 
+/** 已读水位变化（协议扩展 §5）。 */
+export const ReadUpdateData = z.object({
+  conv_id: ConvIdSchema,
+  user_id: UserIdSchema,
+  last_seq: z.number().int().min(0),
+});
+
 export const EVENTS = {
   'message.new': { data: MessageNewData, seq: true },
   'message.update': { data: MessageUpdateData, seq: false },
@@ -81,6 +88,12 @@ export const EVENTS = {
   'member.update': { data: MemberUpdateData, seq: true },
   'group.update': { data: GroupUpdateData, seq: true },
   typing: { data: TypingData, seq: false },
+  /**
+   * 已读水位变化（协议扩展 §5）。**瞬时事件**（seq=null）：
+   * 已读如果每条都写 events 表，一个人翻历史就能产生几百行，
+   * 补发日志会被刷爆；重连后靠 `conv.get` 里的成员水位一次性对齐。
+   */
+  'read.update': { data: ReadUpdateData, seq: false },
   poke: { data: PokeData, seq: false },
 } as const;
 

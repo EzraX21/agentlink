@@ -173,3 +173,45 @@ describe('sendText 的离线行为', () => {
     expect(usedId).toBe(first);
   });
 });
+
+describe('已读水位（协议扩展 §5）', () => {
+  it('只增不减：更小的上报被忽略', () => {
+    const store = makeStore();
+    store.methods.upsertMember(CONV, {
+      conv_id: CONV,
+      user_id: 'u_b',
+      role: 'member',
+      is_agent: false,
+      muted_until: 0,
+      joined_at: 1,
+      last_read_seq: 5,
+      user: { id: 'u_b', kind: 'human', display_name: '小明' },
+    });
+    store.methods.setMemberReadSeq(CONV, 'u_b', 3);
+    expect(store.getState().members[CONV]?.[0]?.last_read_seq).toBe(5);
+    store.methods.setMemberReadSeq(CONV, 'u_b', 9);
+    expect(store.getState().members[CONV]?.[0]?.last_read_seq).toBe(9);
+  });
+
+  it('read.update 事件走 store 分发', () => {
+    const store = makeStore();
+    store.methods.upsertMember(CONV, {
+      conv_id: CONV,
+      user_id: 'u_b',
+      role: 'member',
+      is_agent: false,
+      muted_until: 0,
+      joined_at: 1,
+      user: { id: 'u_b', kind: 'human', display_name: '小明' },
+    });
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'read.update',
+      seq: null,
+      ts: 1,
+      data: { conv_id: CONV, user_id: 'u_b', last_seq: 7 },
+    } as never);
+    expect(store.getState().members[CONV]?.[0]?.last_read_seq).toBe(7);
+  });
+});

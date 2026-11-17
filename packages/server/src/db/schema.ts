@@ -92,6 +92,8 @@ export const memberships = sqliteTable(
     isAgent: integer('is_agent').notNull().default(0),
     mutedUntil: integer('muted_until').notNull().default(0),
     joinedAt: integer('joined_at').notNull(),
+    /** 已读水位（协议扩展 §5）：该成员读到的最大 seq。只增不减。 */
+    lastReadSeq: integer('last_read_seq').notNull().default(0),
   },
   (t) => [
     primaryKey({ columns: [t.convId, t.userId] }),

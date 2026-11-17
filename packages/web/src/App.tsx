@@ -62,6 +62,7 @@ export function App(): React.JSX.Element {
   const [pendingIds, setPendingIds] = useState<Set<string>>(
     () => new Set(loadOutbox().map((e) => e.localId)),
   );
+  const lastReadKeyRef = useRef<string | null>(null);
   const draggingSidebar = useRef(false);
   const [pinned, setPinned] = useState<string[]>(() => loadPinned());
   const [showMembers, setShowMembers] = useState(true);
@@ -518,6 +519,36 @@ export function App(): React.JSX.Element {
   }, []);
 
   /**
+   * 上报已读水位（协议扩展 §5）。
+   *
+   * 只在"当前打开的会话"上报：别的会话里的新消息不该算已读。
+   * 服务端只增不减，所以重复上报是安全的；这里再做个本地去抖，
+   * 避免每来一条消息就发一次请求。
+   */
+  const reportedReadRef = useRef(0);
+  const messagesRef = useRef<Record<string, Message[]>>({});
+  messagesRef.current = messages;
+
+  const reportRead = useCallback((convId: string) => {
+    const client = clientRef.current;
+    if (client === null || !client.connected) return;
+    const list = messagesRef.current[convId] ?? [];
+    let maxSeq = 0;
+    for (const m of list) {
+      if (typeof m.seq === 'number' && m.seq > maxSeq && m.state === 'final') maxSeq = m.seq;
+    }
+    if (maxSeq <= 0) return;
+    const key = `${convId}:${maxSeq}`;
+    if (reportedReadRef.current >= maxSeq && lastReadKeyRef.current === convId) return;
+    lastReadKeyRef.current = convId;
+    reportedReadRef.current = maxSeq;
+    void client.call('read.set', { conv_id: convId, last_seq: maxSeq }).catch(() => {
+      // 失败就下次再报（不要弹错误：已读是后台行为）
+      reportedReadRef.current = 0;
+    });
+  }, []);
+
+  /**
    * 连接可用时把发件箱里的消息重发出去。
    *
    * 关键点：重发用的是**原来的 client_msg_id**，所以即使上次其实已经到达
@@ -559,6 +590,12 @@ export function App(): React.JSX.Element {
       }
     }
   }, [removeMessage]);
+
+  // 当前会话出现新的终态消息 → 上报已读（服务端只增不减，重复上报安全）
+  useEffect(() => {
+    if (activeConvId === null || !connected) return;
+    reportRead(activeConvId);
+  }, [activeConvId, connected, messages, reportRead]);
 
   // 连接恢复时：清掉"已连接"提示 + 冲发件箱
   useEffect(() => {

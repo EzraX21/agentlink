@@ -25,6 +25,8 @@ interface Props {
   pending?: boolean;
   /** 键盘：在气泡上按 Enter/空格打开操作菜单（焦点位置由调用方算）。 */
   onOpenMenuByKeyboard?: (message: Message, element: HTMLElement) => void;
+  /** 对方（群里是"全员"）读到的最大 seq，用来画 ✓ / ✓✓。 */
+  readSeq?: number;
 }
 
 /**
@@ -45,6 +47,7 @@ export function MessageBubble({
   highlighted,
   pending,
   onOpenMenuByKeyboard,
+  readSeq,
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
@@ -213,6 +216,20 @@ export function MessageBubble({
               <span title="尚未送达服务器，连接恢复后会自动重发" style={{ opacity: 0.8 }}>
                 {' '}
                 · 待发送 ⏳
+              </span>
+            )}
+            {isSelf && pending !== true && typeof message.seq === 'number' && (
+              <span
+                title={
+                  readSeq !== undefined && readSeq >= message.seq ? '对方已读' : '已送达，对方还没读'
+                }
+                style={{ opacity: 0.85 }}
+                aria-label={
+                  readSeq !== undefined && readSeq >= message.seq ? '对方已读' : '已送达，未读'
+                }
+              >
+                {' '}
+                {readSeq !== undefined && readSeq >= message.seq ? '✓✓' : '✓'}
               </span>
             )}
           </span>

@@ -48,6 +48,8 @@ export interface ChatState {
   removeMessage(convId: string, messageId: string): void;
   markRevoked(convId: string, messageId: string): void;
   applyDelta(convId: string, messageId: string, rev: number, delta: string): void;
+  /** 已读水位变化（协议扩展 §5）：只增不减。 */
+  setMemberReadSeq(convId: string, userId: string, lastSeq: number): void;
   setStreamingText(convId: string, messageId: string, text: string, rev: number): void;
   clearStreaming(messageId: string): void;
   handleEvent(evt: EvtFrame): void;
@@ -112,6 +114,20 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
       const list = get().members[convId] ?? [];
       set({ members: { ...get().members, [convId]: list.filter((m) => m.user_id !== userId) } });
     },
+    setMemberReadSeq: (convId, userId, lastSeq) => {
+      const list = get().members[convId] ?? [];
+      let changed = false;
+      const next = list.map((m) => {
+        if (m.user_id !== userId) return m;
+        const current = m.last_read_seq ?? 0;
+        if (lastSeq <= current) return m; // 只增不减
+        changed = true;
+        return { ...m, last_read_seq: lastSeq };
+      });
+      if (!changed) return;
+      set({ members: { ...get().members, [convId]: next } });
+    },
+
     upsertMember: (convId, member) => {
       const list = get().members[convId] ?? [];
       const rest = list.filter((m) => m.user_id !== member.user_id);
@@ -288,6 +304,12 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         case 'member.leave': {
           const data = evt.data as { conv_id: string; user_id: string };
           store.removeMember(data.conv_id, data.user_id);
+          break;
+        }
+        case 'read.update': {
+          const data = evt.data as { conv_id: string; user_id: string; last_seq: number };
+          if (typeof data.user_id !== 'string' || typeof data.last_seq !== 'number') return;
+          store.setMemberReadSeq(data.conv_id, data.user_id, data.last_seq);
           break;
         }
         case 'member.update': {

@@ -55,6 +55,8 @@ export function toMember(row: MembershipRow, user: UserRow): Member {
     is_agent: row.isAgent === 1,
     muted_until: row.mutedUntil,
     joined_at: row.joinedAt,
+    // 协议扩展 §5：已读水位。老行默认 0，语义是"没读过"。
+    last_read_seq: row.lastReadSeq ?? 0,
     user: toUserSummary(user),
   };
 }

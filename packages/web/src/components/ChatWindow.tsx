@@ -131,6 +131,18 @@ export function ChatWindow({
     for (const mem of members) m.set(mem.user_id, mem.user.display_name);
     return m;
   }, [members]);
+  /**
+   * 已读水位：**除自己以外所有成员**的最小 `last_read_seq`。
+   * 对单聊就是对方读到哪；对群聊是"全员都读到哪"（与 TG 一致）。
+   */
+  const readWatermark = useMemo(() => {
+    const others = members.filter((m) => m.user_id !== selfId);
+    if (others.length === 0) return 0;
+    let min = Number.POSITIVE_INFINITY;
+    for (const m of others) min = Math.min(min, m.last_read_seq ?? 0);
+    return Number.isFinite(min) ? min : 0;
+  }, [members, selfId]);
+
   const typists = useMemo(
     () => (typing === undefined ? [] : whoIsTyping(typing, convId, selfId, nameById, nowTick)),
     [typing, convId, selfId, nameById, nowTick],
@@ -573,6 +585,7 @@ export function ChatWindow({
                       quote={item.quote}
                       highlighted={item.message.id === highlightMessageId}
                       pending={pendingLocalIds?.has(item.message.id) === true}
+                      readSeq={readWatermark}
                       onJumpToQuote={(id) => {
                         const idx = rows.findIndex(
                           (r) => r.kind === 'msg' && r.message.id === id,

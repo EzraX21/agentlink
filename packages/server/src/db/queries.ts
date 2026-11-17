@@ -355,6 +355,20 @@ export function findMembership(
     .get();
 }
 
+/**
+ * 更新已读水位（协议扩展 §5）。
+ *
+ * 用 `MAX(last_read_seq, ?)` 在 SQL 里做单调保护：即使两个客户端并发上报，
+ * 也不会因为后到的小值把水位改小。
+ */
+export function setLastReadSeq(db: Db, convId: string, userId: string, lastSeq: number): void {
+  db.run(
+    sql`UPDATE memberships
+           SET last_read_seq = MAX(last_read_seq, ${lastSeq})
+         WHERE conv_id = ${convId} AND user_id = ${userId}`,
+  );
+}
+
 export function listMemberships(db: Db, convId: string): MembershipRow[] {
   return db
     .select()

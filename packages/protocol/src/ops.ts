@@ -249,6 +249,17 @@ const SearchMessagesRes = z.object({ hits: z.array(SearchHitSchema) });
  */
 const TypingSendReq = z.object({ conv_id: ConvIdSchema });
 
+/**
+ * 已读水位上报（协议扩展 §5）。
+ *
+ * 只报"我读到哪了"（`last_seq`），不报"哪条已读" —— 后者事件量随消息数线性增长。
+ * 服务端**只增不减**：小于当前水位直接忽略，否则用户翻历史会让已读倒退。
+ */
+const ReadSetReq = z.object({
+  conv_id: ConvIdSchema,
+  last_seq: z.number().int().min(0),
+});
+
 export const TYPING_TTL_MS = 3000;
 /** 同一 (user, conv) 在这个窗口内重复上报只推一次（客户端也按这个值节流）。 */
 export const TYPING_THROTTLE_MS = 2000;
@@ -289,6 +300,7 @@ export const OPS = {
   'search.messages': { req: SearchMessagesReq, res: SearchMessagesRes },
 
   'typing.send': { req: TypingSendReq, res: OkSchema },
+  'read.set': { req: ReadSetReq, res: OkSchema },
 } as const;
 
 export type OpName = keyof typeof OPS;

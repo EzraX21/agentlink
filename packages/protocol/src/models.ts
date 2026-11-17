@@ -125,6 +125,12 @@ export const MemberSchema = z.object({
   is_agent: z.boolean(),
   muted_until: UnixMsSchema,
   joined_at: UnixMsSchema,
+  /**
+   * 该成员在该会话里读到的最大 seq（协议扩展 §5）。
+   *
+   * 可选是为了兼容：老服务端不返回这个字段时客户端按 0 处理（等于"没已读"）。
+   */
+  last_read_seq: z.number().int().min(0).optional(),
   user: UserSummarySchema,
 });
 export type Member = z.infer<typeof MemberSchema>;

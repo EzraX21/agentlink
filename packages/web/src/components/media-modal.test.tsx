@@ -201,3 +201,64 @@ describe('消息里的视频块', () => {
     expect(screen.queryByRole('button', { name: '播放 report.pdf' })).toBeNull();
   });
 });
+
+describe('已读双勾', () => {
+  const base: Message = {
+    id: 'm_r',
+    conv_id: 'c_1',
+    seq: 10,
+    sender: { id: 'u_self', kind: 'human', display_name: '我' },
+    content: [{ type: 'text', text: '我的消息' }],
+    reply_to: null,
+    state: 'final',
+    interrupted: false,
+    created_at: 1,
+    revoked_at: null,
+  };
+
+  it('对方没读时显示单勾', () => {
+    render(
+      <MessageBubble
+        message={base}
+        isSelf
+        streamingText={undefined}
+        showSender={false}
+        onRevoke={() => {}}
+        canRevoke={false}
+        readSeq={3}
+      />,
+    );
+    expect(screen.getByLabelText('已送达，未读').textContent).toContain('✓');
+  });
+
+  it('对方读到这条之后显示双勾', () => {
+    render(
+      <MessageBubble
+        message={base}
+        isSelf
+        streamingText={undefined}
+        showSender={false}
+        onRevoke={() => {}}
+        canRevoke={false}
+        readSeq={10}
+      />,
+    );
+    expect(screen.getByLabelText('对方已读').textContent).toContain('✓✓');
+  });
+
+  it('别人的消息不显示勾', () => {
+    render(
+      <MessageBubble
+        message={{ ...base, sender: { id: 'u_b', kind: 'human', display_name: '小明' } }}
+        isSelf={false}
+        streamingText={undefined}
+        showSender
+        onRevoke={() => {}}
+        canRevoke={false}
+        readSeq={10}
+      />,
+    );
+    expect(screen.queryByLabelText('对方已读')).toBeNull();
+    expect(screen.queryByLabelText('已送达，未读')).toBeNull();
+  });
+});
