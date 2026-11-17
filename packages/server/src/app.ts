@@ -20,6 +20,7 @@ import { registerM3Handlers } from './ops/m3.js';
 import { registerM4Handlers, makeStreamHooks } from './ops/m4.js';
 import { registerM5Handlers } from './ops/m5.js';
 import { registerM8Handlers } from './ops/m8.js';
+import { registerTypingHandlers } from './ops/typing.js';
 import { fromEnv as rateLimiterFromEnv } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
 import { loadHooks, NOOP_HOOKS } from './hooks.js';
@@ -106,6 +107,8 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   const attachments = new AttachmentService(dbc.db, config.uploadsDir);
   registerM5Handlers(handlers, limiter);
   registerM8Handlers(handlers);
+  // 协议扩展（docs/PROPOSAL-protocol-ext.md）：打字指示
+  registerTypingHandlers(handlers);
 
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
   const recovered = streams.recoverStaleOnBoot();

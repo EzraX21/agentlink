@@ -35,6 +35,8 @@ export const MILESTONES = [
   'ui-browser',
   'perf',
   'visual',
+  // 协议扩展验收（经用户批准后新增，见 docs/PROPOSAL-protocol-ext.md）
+  'ext-typing',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

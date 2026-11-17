@@ -335,14 +335,15 @@ export async function run(ctx) {
   includes(typingSrc, '3000', '打字提示 3 秒过期');
   includes(src.chat, '正在输入', '聊天窗头部显示"正在输入"');
   includes(src.app, 'reportTyping', 'App 在输入时上报');
-  // 关键：客户端**没有**把 typing.send 注册进协议包（否则就是擅自扩协议）
+  // 协议扩展已获批准并落地：typing.send 现在应当存在于协议包
   const opsSrc = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
-  ok(!opsSrc.includes('typing.send'), '协议包仍然没有 typing.send（等审批）');
+  ok(opsSrc.includes("'typing.send'"), '协议包已包含 typing.send（用户批准后新增）');
 
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
-  for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
-    ok(!protoOps.includes(notAnOp), `${notAnOp} 仍未加入协议（第 2 批不扩协议）`);
+  // 已批准并落地的扩展不在这个清单里（typing.send 见 B1h 的正向断言）
+  for (const notAnOp of ['message.edit', 'reaction.add', 'message.pin', 'read.set', 'message.forward']) {
+    ok(!protoOps.includes(notAnOp), `${notAnOp} 尚未加入协议（等下一批扩展）`);
   }
 
   section('C. web 单测');

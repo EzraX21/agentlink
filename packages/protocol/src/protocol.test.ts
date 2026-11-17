@@ -12,6 +12,8 @@ import {
   STREAM_FLUSH_CHARS,
   STREAM_FLUSH_INTERVAL_MS,
   STREAM_IDLE_TIMEOUT_MS,
+  TYPING_THROTTLE_MS,
+  TYPING_TTL_MS,
   WS_SUBPROTOCOL,
   isKnownEvtType,
   isKnownOp,
@@ -90,7 +92,7 @@ describe('帧信封', () => {
 });
 
 describe('op 注册表', () => {
-  it('覆盖协议 §5 列出的全部 op', () => {
+  it('覆盖协议 §5 列出的全部 op（含已批准的扩展 op）', () => {
     const expected = [
       'auth',
       'resume',
@@ -116,9 +118,21 @@ describe('op 注册表', () => {
       'member.role.set',
       'poke.send',
       'search.messages',
+      // 协议扩展（施工守则 §6.3：经用户批准后新增）
+      // 见 docs/PROPOSAL-protocol-ext.md
+      'typing.send',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(24);
+    expect(OP_NAMES.length).toBe(25);
+  });
+
+  it('typing.send 只需要 conv_id，且常量与事件对齐', () => {
+    const ok = parseOpData('typing.send', { conv_id: 'c_01M7JD0000000000000000000A' });
+    expect(ok.success).toBe(true);
+    expect(parseOpData('typing.send', {}).success).toBe(false);
+    // 事件侧：typing 是瞬时事件（seq=false），不落库不补发
+    expect(EVENTS.typing.seq).toBe(false);
+    expect(TYPING_TTL_MS).toBeGreaterThan(TYPING_THROTTLE_MS);
   });
 
   it('message.send 要求 content 是块数组且 client_msg_id 必填', () => {

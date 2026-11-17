@@ -123,6 +123,13 @@ export async function run(ctx) {
     '设置群公告',
   );
 
+  // 为"打字提示"准备第二个用户，并拉进群
+  const bob = await mkUser(http, 'bob', '小明');
+  expectOk(
+    await a.request('member.invite', { conv_id: conv.id, user_ids: [bob.user.id] }),
+    '把 bob 拉进群',
+  );
+
   // 起 echo agent，供流式验证
   const agentProc = spawn(process.execPath, [path.join(repoRoot, 'examples/echo-agent/index.mjs')], {
     cwd: path.join(repoRoot, 'examples/echo-agent'),
@@ -368,6 +375,34 @@ export async function run(ctx) {
       '连接状态在侧栏内（不再浮在聊天区右下角）',
     );
     await page.screenshot({ path: path.join(SHOT_DIR, '09-bottom-right.png') });
+
+    section('9c. 一个窗输入 → 另一个窗看到「正在输入」（M6 验收第 2 条）');
+    const page2 = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    try {
+      await page2.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+      await page2.fill('#username', 'bob');
+      await page2.fill('#password', 'browser-pass-123');
+      await page2.click('button[type=submit]');
+      await page2.waitForSelector('text=浏览器测试群', { timeout: 20_000 });
+      await page2.click('text=浏览器测试群');
+      await page2.waitForSelector('[data-message-id]', { timeout: 10_000 });
+
+      // alice（page 1）已经在群里：输入几个字触发 typing.send
+      await page.fill('textarea', '我在打字');
+
+      // bob 的界面必须出现「爱丽丝 正在输入…」
+      await page2.waitForSelector('text=正在输入', { timeout: 15_000 });
+      const typingText = await page2.locator('text=正在输入').first().textContent();
+      includes(typingText ?? '', '爱丽丝', 'B 窗看到「爱丽丝 正在输入…」');
+      ok(true, `typing 提示到达第二个浏览器窗：${(typingText ?? '').trim()}`);
+      await page2.screenshot({ path: path.join(SHOT_DIR, '13-typing.png') });
+
+      // 3 秒过期后消失（不靠刷新）
+      await page2.waitForSelector('text=正在输入', { state: 'detached', timeout: 15_000 });
+      ok(true, '3 秒后提示自动消失');
+    } finally {
+      await page2.close().catch(() => undefined);
+    }
 
     section('10. 离线队列：断线时发的消息，恢复后自动送达且只有一条');
     // 此时服务端刚重启、页面已重连。先再断一次，模拟"用户没发现断线就发了消息"

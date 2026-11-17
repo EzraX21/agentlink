@@ -102,12 +102,20 @@ export async function run(ctx) {
   lt(latency, 200, `对端收到推送 ${latency}ms（< 200ms，同机）`);
   eq(evt.data.message.content[0].text, '对端应该很快看到', '内容正确');
 
-  section('M6.3 typing 事件的协议形态');
-  // 协议 §6 把 typing 列为 evt（seq=null），但 §5 的 op 清单没有发送入口。
-  // 服务端不擅自加 op（施工守则 §6），所以这里只校验常量与事件 schema 存在。
-  const protoEvents = await readFile(`${repoRoot}/packages/protocol/src/events.ts`, 'utf8');
-  includes(protoEvents, 'typing: { data: TypingData, seq: false }', 'protocol 定义了 typing 事件');
-  includes(protoEvents, "typing: { data: TypingData, seq: false }", 'typing 是瞬时事件（seq: false）');
+  section('M6.3 一个窗输入 → 另一个窗看到 typing（端到端）');
+  // 协议扩展（经用户批准，见 docs/PROPOSAL-protocol-ext.md §1）：`typing.send`。
+  // 之前协议 §6 有 typing 事件、§5 没有触发它的 op，这一条只能校验常量；
+  // 现在是真跑：A 调 typing.send，B 必须收到 typing 事件。
+  expectOk(await a.request('typing.send', { conv_id: conv.id }), 'A 上报"我在打字"');
+  const typingEvt = await b.nextEvent('typing');
+  eq(typingEvt.data.conv_id, conv.id, 'B 收到了 typing 事件');
+  eq(typingEvt.data.user_id, alice.user.id, '事件里带发送者 id');
+  eq(typingEvt.seq, null, 'typing 是瞬时事件（seq=null，不落库）');
+  eq(
+    typingEvt.data.user.display_name,
+    '爱丽丝',
+    '事件里带发送者昵称（前端的"X 正在输入…"要用）',
+  );
 
   section('M6.4 断线 30 秒再插回 → 消息补齐（无需刷新）');
   b.close();

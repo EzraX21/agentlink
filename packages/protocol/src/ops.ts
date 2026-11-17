@@ -234,6 +234,26 @@ const SearchMessagesReq = z.object({
 const SearchMessagesRes = z.object({ hits: z.array(SearchHitSchema) });
 
 // ---------------------------------------------------------------------------
+// §5.12 输入状态（协议扩展：v1 增量，见 docs/PROPOSAL-protocol-ext.md §1）
+// ---------------------------------------------------------------------------
+
+/**
+ * 「我在这个会话里打字」。
+ *
+ * 刻意**不带** state 字段：客户端不声明"开始/结束"，服务端按时间窗过期
+ * （`TYPING_TTL_MS`）。这样没有状态机，也不会出现"发了 started 但没发 stopped"
+ * 导致对方一直看到"正在输入"的情况。
+ *
+ * 触发的事件是已有的 `typing`（`seq: null`，不落库、不补发）——打字指示
+ * 过期即无用，补发历史打字状态没有意义。
+ */
+const TypingSendReq = z.object({ conv_id: ConvIdSchema });
+
+export const TYPING_TTL_MS = 3000;
+/** 同一 (user, conv) 在这个窗口内重复上报只推一次（客户端也按这个值节流）。 */
+export const TYPING_THROTTLE_MS = 2000;
+
+// ---------------------------------------------------------------------------
 // 注册表
 // ---------------------------------------------------------------------------
 
@@ -267,6 +287,8 @@ export const OPS = {
   'poke.send': { req: PokeSendReq, res: PokeSendRes },
 
   'search.messages': { req: SearchMessagesReq, res: SearchMessagesRes },
+
+  'typing.send': { req: TypingSendReq, res: OkSchema },
 } as const;
 
 export type OpName = keyof typeof OPS;
