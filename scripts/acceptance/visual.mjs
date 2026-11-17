@@ -124,12 +124,16 @@ export async function run(ctx) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const results = [];
 
+  /** 截图缓冲（用于做"深色确实更暗"这类不依赖人眼的校验）。 */
+  const buffers = new Map();
+
   /** 截一张并与基线比对。 */
   async function shoot(name, prepare) {
     await prepare();
     // 等动画/字体稳定
     await page.waitForTimeout(350);
     const buf = await page.screenshot({ type: 'png' });
+    buffers.set(name, buf);
     const baselinePath = path.join(BASELINE_DIR, `${name}.png`);
 
     const baselineExists = await stat(baselinePath).then(() => true).catch(() => false);
@@ -185,6 +189,42 @@ export async function run(ctx) {
       await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
       await page.waitForSelector('text=视觉回归群', { timeout: 20_000 });
     });
+
+    // 回到桌面宽度，覆盖"弹窗/菜单/面板"这些状态（它们有自己的版式）
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=视觉回归群', { timeout: 20_000 });
+    await page.click('text=视觉回归群');
+    await page.waitForSelector('[data-message-id]', { timeout: 10_000 });
+
+    await shoot('05-group-info', async () => {
+      await page.click('button[title*="群信息"]');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+    });
+
+    await shoot('06-context-menu', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      // 右键最后一条消息（坐标由元素位置决定，可复现）
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.waitForSelector('[role="menu"]', { timeout: 10_000 });
+    });
+
+    await shoot('07-search-panel', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Control+k');
+      await page.fill('input[placeholder*="搜索消息"]', '第一条');
+      await page.waitForSelector('mark', { timeout: 10_000 });
+      await page.waitForTimeout(400); // 等去抖与列表稳定
+    });
+
+    await shoot('08-dark-chat', async () => {
+      await page.keyboard.press('Escape');
+      // 切深色主题：点右下角主题按钮（比直接写 localStorage 更接近真实操作）
+      await page.click('button:has-text("🌙"), button:has-text("☀️")');
+      await page.waitForTimeout(300);
+    });
   } finally {
     await page.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
@@ -204,12 +244,35 @@ export async function run(ctx) {
       );
   }
 
+  // 客观校验：深色主题截图的平均亮度必须明显低于浅色。
+  // 否则"深色基线"可能截到的是没切过去的浅色页 —— 人眼不看的自动化会一直绿。
+  const meanLuma = (buf) => {
+    const png = PNG.sync.read(buf);
+    let sum = 0;
+    let n = 0;
+    // 抽样即可（每 7 个像素取一个），避免大图全量遍历
+    for (let i = 0; i < png.data.length; i += 4 * 7) {
+      const r = png.data[i];
+      const g = png.data[i + 1];
+      const b = png.data[i + 2];
+      sum += 0.299 * r + 0.587 * g + 0.114 * b;
+      n += 1;
+    }
+    return n === 0 ? 0 : sum / n;
+  };
+  const lightChat = buffers.get('02-chat');
+  const darkChat = buffers.get('08-dark-chat');
+  if (lightChat !== undefined && darkChat !== undefined) {
+    const light = meanLuma(lightChat);
+    const dark = meanLuma(darkChat);
+    ok(
+      dark < light * 0.75,
+      `深色主题确实更暗：浅色平均亮度 ${light.toFixed(1)}，深色 ${dark.toFixed(1)}`,
+    );
+  }
+
   const compared = results.filter((r) => r.status === 'compared');
-  eq(
-    results.length,
-    4,
-    `共 4 张关键页面截图（其中 ${compared.length} 张与基线比对了）`,
-  );
+  eq(results.length, 8, `共 8 张截图（基础页 + 弹窗/菜单/搜索/深色），其中 ${compared.length} 张与基线比对`);
   ok(true, `基线目录：${BASELINE_DIR}；diff 输出：${DIFF_DIR}`);
 
   return summary('visual');

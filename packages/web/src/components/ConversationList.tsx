@@ -1,7 +1,7 @@
 import type { Conversation, Message } from '@agentlink/protocol';
 import { avatarColor, formatDay, initials } from '../lib/format.js';
 import { orderByPinned } from '../lib/localState.js';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Props {
   convs: Conversation[];
@@ -56,6 +56,53 @@ export function ConversationList({
 }: Props): React.JSX.Element {
   const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  // 键盘导航：roving tabindex（列表里只有一个可 Tab 焦点，↑↓ 在项之间移动）
+  const [focusIndex, setFocusIndex] = useState(0);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  const ordered = orderByPinned(convs, pinned);
+
+  useEffect(() => {
+    // 会话列表变化时把焦点索引夹回范围
+    setFocusIndex((i) => Math.min(Math.max(0, i), Math.max(0, ordered.length - 1)));
+  }, [ordered.length]);
+
+  const focusItem = useCallback(
+    (index: number) => {
+      if (ordered.length === 0) return;
+      const next = Math.min(Math.max(0, index), ordered.length - 1);
+      setFocusIndex(next);
+      itemRefs.current[next]?.focus();
+    },
+    [ordered.length],
+  );
+
+  /** 列表级键盘：↑↓ Home End 移动焦点，Enter/空格由项自己处理。 */
+  const onListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          focusItem(focusIndex + 1);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          focusItem(focusIndex - 1);
+          break;
+        case 'Home':
+          e.preventDefault();
+          focusItem(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          focusItem(ordered.length - 1);
+          break;
+        default:
+          break;
+      }
+    },
+    [focusIndex, focusItem, ordered.length],
+  );
   return (
     <aside className="al-sidebar flex flex-col" style={{ width }}>
       <header className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid var(--al-border)' }}>
@@ -71,7 +118,12 @@ export function ConversationList({
         />
       </header>
 
-      <div className="flex-1 overflow-y-auto py-1" role="list" aria-label="会话列表">
+      <div
+        className="flex-1 overflow-y-auto py-1"
+        role="list"
+        aria-label="会话列表"
+        onKeyDown={onListKeyDown}
+      >
         {convs.length === 0 && (
           <div className="al-muted p-6 text-center text-xs">
             还没有会话。
@@ -79,7 +131,7 @@ export function ConversationList({
             点左上角 ＋ 建一个群。
           </div>
         )}
-        {orderByPinned(convs, pinned).map((conv) => {
+        {ordered.map((conv, index) => {
           const list = messages[conv.id] ?? [];
           const last = list[list.length - 1];
           const preview =
@@ -93,11 +145,15 @@ export function ConversationList({
           return (
             <div
               key={conv.id}
+              ref={(el) => {
+                itemRefs.current[index] = el;
+              }}
               className="al-conv-item"
               data-active={conv.id === activeConvId}
               role="button"
-              tabIndex={0}
+              tabIndex={index === focusIndex ? 0 : -1}
               aria-current={conv.id === activeConvId}
+              onFocus={() => setFocusIndex(index)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();

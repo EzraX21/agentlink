@@ -177,6 +177,34 @@ describe('会话列表可访问性', () => {
     expect(screen.getByLabelText('7 条未读')).toBeTruthy();
   });
 
+  it('↑↓ 在会话之间移动焦点，Home/End 跳到首尾', () => {
+    const convs = [
+      { ...CONV, id: 'c1', title: '会话一' },
+      { ...CONV, id: 'c2', title: '会话二' },
+      { ...CONV, id: 'c3', title: '会话三' },
+    ];
+    render(<ConversationList {...listProps({ convs, unread: {} })} />);
+
+    const list = screen.getByRole('list', { name: '会话列表' });
+    const items = screen.getAllByRole('button').filter((el) => el.getAttribute('role') === 'button');
+
+    // 初始只有第一个可 Tab
+    expect(items[0]?.getAttribute('tabindex')).toBe('0');
+    expect(items[1]?.getAttribute('tabindex')).toBe('-1');
+
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(document.activeElement?.textContent).toContain('会话二');
+
+    fireEvent.keyDown(list, { key: 'ArrowUp' });
+    expect(document.activeElement?.textContent).toContain('会话一');
+
+    fireEvent.keyDown(list, { key: 'End' });
+    expect(document.activeElement?.textContent).toContain('会话三');
+
+    fireEvent.keyDown(list, { key: 'Home' });
+    expect(document.activeElement?.textContent).toContain('会话一');
+  });
+
   it('会话列表容器有 aria-label', () => {
     render(<ConversationList {...listProps()} />);
     expect(screen.getByRole('list', { name: '会话列表' })).toBeTruthy();
