@@ -19,6 +19,7 @@ import {
   savePinned,
   saveUnread,
 } from './lib/localState.js';
+import { NARROW_QUERY, useMediaQuery } from './lib/useMediaQuery.js';
 
 const PAGE_SIZE = 50;
 
@@ -34,6 +35,9 @@ export function App(): React.JSX.Element {
   const [showSearch, setShowSearch] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [unread, setUnread] = useState<Record<string, number>>(() => loadUnread());
+  // 打开会话那一刻的未读数：用来插"以下为新消息"分隔线
+  const [unreadOnOpen, setUnreadOnOpen] = useState<Record<string, number>>({});
+  const narrow = useMediaQuery(NARROW_QUERY);
   const [pinned, setPinned] = useState<string[]>(() => loadPinned());
   const [showMembers, setShowMembers] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -221,6 +225,8 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     activeConvRef.current = activeConvId;
     if (activeConvId === null) return;
+    // 先记下这一刻的未读数，再清零（分隔线要用它）
+    setUnreadOnOpen((prev) => ({ ...prev, [activeConvId]: unread[activeConvId] ?? 0 }));
     setUnread((prev) => {
       if ((prev[activeConvId] ?? 0) === 0) return prev;
       const next = { ...prev };
@@ -228,6 +234,8 @@ export function App(): React.JSX.Element {
       saveUnread(next);
       return next;
     });
+    // unread 故意不进依赖：这里只在切换会话时读一次快照
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvId]);
 
   useEffect(() => {
@@ -473,9 +481,13 @@ export function App(): React.JSX.Element {
     );
   }
 
+  // 窄屏单栏：没选会话看列表，选了会话看聊天（TG 移动端行为）
+  const narrowShowChat = narrow && activeConv !== null;
+  const narrowShowList = narrow && activeConv === null;
+
   return (
     <div className="flex h-full">
-      {showSearch ? (
+      {!narrowShowChat && (showSearch ? (
         <div className="w-[300px] shrink-0">
           <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
         </div>
@@ -493,12 +505,14 @@ export function App(): React.JSX.Element {
           pinned={pinned}
           onTogglePin={togglePin}
         />
-      )}
+      ))}
 
       {activeConv === null ? (
-        <div className="al-chat-bg grid flex-1 place-items-center">
-          <div className="al-muted text-sm">选择左侧一个会话开始聊天</div>
-        </div>
+        narrowShowList ? null : (
+          <div className="al-chat-bg grid flex-1 place-items-center">
+            <div className="al-muted text-sm">选择左侧一个会话开始聊天</div>
+          </div>
+        )
       ) : (
         <ChatWindow
           convId={activeConv.id}
@@ -519,10 +533,12 @@ export function App(): React.JSX.Element {
           canRevokeOthers={myRole === 'owner' || myRole === 'admin'}
           highlightMessageId={highlightId}
           onJumpToMessage={jumpToMessage}
+          unreadOnOpen={unreadOnOpen[activeConv.id] ?? 0}
+          {...(narrow ? { onBack: () => setActiveConv(null) } : {})}
         />
       )}
 
-      {activeConv !== null && showMembers && (
+      {activeConv !== null && showMembers && !narrow && (
         <MemberPanel
           members={activeMembers}
           selfId={self?.id ?? ''}

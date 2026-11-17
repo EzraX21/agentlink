@@ -34,11 +34,16 @@ interface Props {
   canRevokeOthers: boolean;
   /** 从搜索结果跳过来时要高亮的消息。 */
   highlightMessageId?: string | null;
+  /** 打开会话时有多少条未读：在相应位置插一条"以下为新消息"分隔线。 */
+  unreadOnOpen?: number;
+  /** 窄屏时显示返回按钮（回到会话列表）。 */
+  onBack?: () => void;
 }
 
 /** 虚拟列表里的一行：日期分隔线 或 一条消息。 */
 type Row =
   | { kind: 'date'; key: string; label: string }
+  | { kind: 'unread'; key: string }
   | {
       kind: 'msg';
       key: string;
@@ -91,6 +96,8 @@ export function ChatWindow({
   onToggleMembers,
   canRevokeOthers,
   highlightMessageId,
+  unreadOnOpen = 0,
+  onBack,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
@@ -177,9 +184,18 @@ export function ChatWindow({
 
     const out: Row[] = [];
     let lastDay = '';
+    // "以下为新消息"插在哪里：最后 unreadOnOpen 条之前
+    const unreadStart =
+      unreadOnOpen > 0 && messages.length > unreadOnOpen
+        ? messages.length - unreadOnOpen
+        : -1;
+
     for (let i = 0; i < messages.length; i += 1) {
       const msg = messages[i];
       if (msg === undefined) continue;
+      if (i === unreadStart) {
+        out.push({ kind: 'unread', key: 'unread-divider' });
+      }
       const dk = dayKey(msg.created_at);
       if (dk !== lastDay) {
         lastDay = dk;
@@ -203,7 +219,7 @@ export function ChatWindow({
       out.push({ kind: 'msg', key: msg.id, message: msg, showSender, quote });
     }
     return out;
-  }, [messages]);
+  }, [messages, unreadOnOpen]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -288,9 +304,16 @@ export function ChatWindow({
         className="flex items-center justify-between px-4 py-2.5"
         style={{ borderBottom: '1px solid var(--al-border)', background: 'var(--al-bg-sidebar)' }}
       >
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{convTitle}</div>
-          <div className="al-muted text-[11px]">{members.length} 位成员</div>
+        <div className="flex min-w-0 items-center gap-2">
+          {onBack !== undefined && (
+            <button className="al-btn-ghost shrink-0 !px-2" title="返回会话列表" onClick={onBack}>
+              ←
+            </button>
+          )}
+          <div className="min-w-0">
+            <div className="truncate font-semibold">{convTitle}</div>
+            <div className="al-muted text-[11px]">{members.length} 位成员</div>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
@@ -411,7 +434,18 @@ export function ChatWindow({
                     transform: `translateY(${row.start}px)`,
                   }}
                 >
-                  {item.kind === 'date' ? (
+                  {item.kind === 'unread' ? (
+                    <div className="my-2 flex items-center gap-2 px-4">
+                      <span className="h-px flex-1" style={{ background: 'var(--al-primary)' }} />
+                      <span
+                        className="shrink-0 rounded-full px-2 py-0.5 text-[11px]"
+                        style={{ background: 'var(--al-primary)', color: '#fff' }}
+                      >
+                        以下为新消息
+                      </span>
+                      <span className="h-px flex-1" style={{ background: 'var(--al-primary)' }} />
+                    </div>
+                  ) : item.kind === 'date' ? (
                     <div className="my-2 text-center">
                       <span
                         className="al-badge"

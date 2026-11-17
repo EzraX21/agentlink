@@ -428,3 +428,29 @@ substr(text, max(1, instr(text, q) - 40), 40)   -- 错
 
 **会话内搜索**：与全局搜索共用 `GET /api/search`，只是固定带上 `conv_id`；
 结果条显示 `n/m` 与 ↑↓ 跳转，命中片段复用同一个 `Excerpt`（按 `<mark>` 切分渲染）。
+
+---
+
+## 2026-11-17 · 富文本切分是有顺序的（一次真实的回归）
+
+**背景**：给正文加 `@提及` 高亮时，我把文本段的切分函数从 `splitUrls` 换成了
+`splitMentions`，结果 **URL 全部不再识别** —— 因为 `splitUrls` 才会去找链接，
+换成 `splitMentions` 后链接永远没有机会被匹配到。
+
+**正确顺序**（`lib/richtext.ts`）：
+
+```
+代码块 → 行内代码/粗体 → URL → 提及
+```
+
+也即：文本段必须先过 `splitUrls`，由它内部再切 `splitMentions`。
+
+**为什么写下来**：这类"管线顺序"bug 不会被类型检查发现，单测也只有在同时覆盖
+两种语法时才会红。现在有专门的回归用例
+（`提及与 URL 同时出现时两者都要识别`），输入 `@echo 看 https://example.com/x 这个`，
+要求同时产出 `mention` 与 `url` 两种片段。
+
+**顺带修的另一处**：同一次改动里我用通用字符串替换，误把 `splitMentions` 的尾巴
+改成了**递归调用自己**（无命中时 `text.slice(0)` 无限递归），直接
+`RangeError: Maximum call stack size exceeded`，六个用例同时红。教训是：
+**大范围字符串替换后必须跑测试**，不能只看 typecheck 通过。

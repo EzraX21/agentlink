@@ -27,7 +27,8 @@ export type RichSegment =
   | { kind: 'url'; text: string; href: string }
   | { kind: 'code'; text: string }
   | { kind: 'codeblock'; text: string }
-  | { kind: 'bold'; text: string };
+  | { kind: 'bold'; text: string }
+  | { kind: 'mention'; text: string };
 
 /** URL 到这些前缀才认为是链接，避免把 `javascript:` 变成可点链接。 */
 const SAFE_URL = /^(https?:\/\/|mailto:)/i;
@@ -44,7 +45,9 @@ function splitUrls(text: string): RichSegment[] {
     const trimmed = raw.replace(/[.,;:!?)\]}，。；：！？）】」』]+$/u, '');
     if (trimmed === '') continue;
     const start = m.index;
-    if (start > last) out.push({ kind: 'text', text: text.slice(last, start) });
+    if (start > last) {
+      for (const seg of splitMentions(text.slice(last, start))) out.push(seg);
+    }
     const href = SAFE_URL.test(trimmed)
       ? trimmed
       : `https://${trimmed.replace(/^www\./i, 'www.')}`;
@@ -52,6 +55,31 @@ function splitUrls(text: string): RichSegment[] {
     last = start + trimmed.length;
     // 被裁掉的尾部标点回到后续文本
     re.lastIndex = last;
+  }
+  if (last < text.length) {
+    for (const seg of splitMentions(text.slice(last))) out.push(seg);
+  }
+  return out.length > 0 ? out : [{ kind: 'text', text }];
+}
+
+/**
+ * 提及：`@echo`、`@小明`、`@u_01J...`。
+ *
+ * 前面不能是邮箱那么紧的字符（`a@b.com` 里的 `@b` 不算提及），
+ * 所以用"前面是行首或非字母数字"来限定。长度限制避免把整段话吞掉。
+ */
+const MENTION = /(^|[^A-Za-z0-9._%+-])@([A-Za-z0-9_\-.\u4e00-\u9fa5]{1,32})/gu;
+
+function splitMentions(text: string): RichSegment[] {
+  const out: RichSegment[] = [];
+  let last = 0;
+  for (let m = MENTION.exec(text); m !== null; m = MENTION.exec(text)) {
+    const prefix = m[1] ?? '';
+    const name = m[2] ?? '';
+    const at = m.index + prefix.length;
+    if (at > last) out.push({ kind: 'text', text: text.slice(last, at) });
+    out.push({ kind: 'mention', text: `@${name}` });
+    last = at + name.length + 1;
   }
   if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
   return out.length > 0 ? out : [{ kind: 'text', text }];

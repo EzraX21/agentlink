@@ -67,6 +67,23 @@ function Segment({ seg }: { seg: RichSegment }): React.JSX.Element {
       );
     case 'bold':
       return <strong>{seg.text}</strong>;
+    case 'mention':
+      // @提及：与主题色一致的高亮（TG 也会把 @ 提到的人标出来）
+      return (
+        <span
+          className="al-mention"
+          title="提及"
+          style={{
+            color: 'var(--al-primary)',
+            background: 'color-mix(in srgb, var(--al-primary) 14%, transparent)',
+            borderRadius: 4,
+            padding: '0 3px',
+            fontWeight: 500,
+          }}
+        >
+          {seg.text}
+        </span>
+      );
     default:
       return <>{seg.text}</>;
   }

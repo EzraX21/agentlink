@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ContentBlock, Message } from '@agentlink/protocol';
 import { avatarColor, formatTime, initials } from '../lib/format.js';
 import { FileBlockView, ImageBlockView } from './AttachmentBlocks.js';
@@ -41,9 +42,15 @@ export function MessageBubble({
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
+  const blocks: ContentBlock[] = message.content;
+  // 同一消息里可能有多张图：灯箱支持上/下张（TG 也是这样）
+  const [zoomIndex, setZoomIndex] = useState<number | null>(null);
+  const imageIndexes = blocks
+    .map((b, i) => (b.type === 'image' ? i : -1))
+    .filter((i) => i >= 0);
+  const zoomPos = zoomIndex === null ? -1 : imageIndexes.indexOf(zoomIndex);
   const streamingTextOnly =
     streamingText ?? message.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
-  const blocks: ContentBlock[] = message.content;
 
   return (
     <div
@@ -128,6 +135,30 @@ export function MessageBubble({
                       filename={undefined}
                       width={block.width}
                       height={block.height}
+                      zoomed={zoomIndex === i}
+                      onZoom={() => setZoomIndex(i)}
+                      onCloseZoom={() => setZoomIndex(null)}
+                      position={
+                        imageIndexes.length > 1
+                          ? { index: zoomPos + 1, total: imageIndexes.length }
+                          : null
+                      }
+                      onPrev={
+                        imageIndexes.length > 1
+                          ? () => {
+                              const prev = imageIndexes[(zoomPos - 1 + imageIndexes.length) % imageIndexes.length];
+                              if (prev !== undefined) setZoomIndex(prev);
+                            }
+                          : undefined
+                      }
+                      onNext={
+                        imageIndexes.length > 1
+                          ? () => {
+                              const next = imageIndexes[(zoomPos + 1) % imageIndexes.length];
+                              if (next !== undefined) setZoomIndex(next);
+                            }
+                          : undefined
+                      }
                     />
                   );
                 }

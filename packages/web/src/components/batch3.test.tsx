@@ -72,6 +72,21 @@ describe('正文富文本', () => {
     expect(container.querySelector('a')?.getAttribute('href')).toBe('https://ok.com');
   });
 
+  it('@提及识别，且不会把邮箱当提及', () => {
+    const segs = tokenizeRichText('@echo 你好，@小明 也来，写信给 a@b.com');
+    const mentions = segs.filter((x) => x.kind === 'mention').map((x) => x.text);
+    expect(mentions).toContain('@echo');
+    expect(mentions).toContain('@小明');
+    expect(mentions).not.toContain('@b');
+  });
+
+  it('提及与 URL 同时出现时两者都要识别（管线顺序回归）', () => {
+    // 曾经因为文本段只走"提及切分"，URL 永远检测不到
+    const segs = tokenizeRichText('@echo 看 https://example.com/x 这个');
+    expect(segs.some((x) => x.kind === 'mention' && x.text === '@echo')).toBe(true);
+    expect(segs.some((x) => x.kind === 'url' && x.href === 'https://example.com/x')).toBe(true);
+  });
+
   it('外链带 rel=noopener（防 window.opener 劫持）', () => {
     const { container } = render(<RichText text={'https://x.com'} />);
     expect(container.querySelector('a')?.getAttribute('rel')).toContain('noopener');

@@ -268,6 +268,29 @@ describe('未读与置顶', () => {
   });
 });
 
+describe('未读分隔线', () => {
+  it('打开会话时按未读数插入"以下为新消息"', async () => {
+    const now = Date.now();
+    render(
+      <ChatWindow
+        {...chatProps({
+          messages: [msg('m1', '已读的', now - 3000), msg('m2', '新消息一', now - 2000), msg('m3', '新消息二', now - 1000)],
+          unreadOnOpen: 2,
+        })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('以下为新消息')).toBeTruthy());
+  });
+
+  it('未读数为 0 时不显示分隔线', async () => {
+    render(
+      <ChatWindow {...chatProps({ messages: [msg('m1', '只有这一条', Date.now())], unreadOnOpen: 0 })} />,
+    );
+    await waitFor(() => expect(screen.getByText('只有这一条')).toBeTruthy());
+    expect(screen.queryByText('以下为新消息')).toBeNull();
+  });
+});
+
 describe('成员搜索', () => {
   it('按昵称过滤成员', () => {
     render(

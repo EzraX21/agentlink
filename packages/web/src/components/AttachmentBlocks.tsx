@@ -14,15 +14,28 @@ export function ImageBlockView({
   filename,
   width,
   height,
+  zoomed = false,
+  onZoom,
+  onCloseZoom,
+  onPrev,
+  onNext,
+  position,
 }: {
   attachmentId: string;
   filename?: string | undefined;
   width?: number | undefined;
   height?: number | undefined;
+  /** 灯箱是否打开（由父组件控制，这样才能在同一消息的多张图之间翻页）。 */
+  zoomed?: boolean;
+  onZoom?: () => void;
+  onCloseZoom?: () => void;
+  onPrev?: (() => void) | undefined;
+  onNext?: (() => void) | undefined;
+  /** 多图时显示 "2/3"。 */
+  position?: { index: number; total: number } | null;
 }): React.JSX.Element {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -69,7 +82,7 @@ export function ImageBlockView({
       <img
         src={url}
         alt={filename ?? '图片'}
-        onClick={() => setZoomed(true)}
+        onClick={() => onZoom?.()}
         style={{
           display: 'block',
           maxWidth: 'min(420px, 100%)',
@@ -81,14 +94,69 @@ export function ImageBlockView({
       {zoomed && (
         <div
           className="fixed inset-0 z-[60] grid place-items-center"
-          style={{ background: 'rgb(0 0 0 / 78%)' }}
-          onClick={() => setZoomed(false)}
+          style={{ background: 'rgb(0 0 0 / 82%)' }}
+          onClick={() => onCloseZoom?.()}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') onPrev?.();
+            if (e.key === 'ArrowRight') onNext?.();
+            if (e.key === 'Escape') onCloseZoom?.();
+          }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
         >
           <img
             src={url}
             alt={filename ?? '图片'}
-            style={{ maxWidth: '92vw', maxHeight: '92vh', borderRadius: 8 }}
+            style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 8 }}
+            onClick={(e) => e.stopPropagation()}
           />
+
+          {position !== null && position !== undefined && (
+            <div
+              className="absolute top-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-xs text-white"
+              style={{ background: 'rgb(0 0 0 / 60%)' }}
+            >
+              {position.index}/{position.total}
+            </div>
+          )}
+
+          {onPrev !== undefined && (
+            <button
+              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-lg text-white"
+              style={{ background: 'rgb(0 0 0 / 55%)' }}
+              title="上一张（←）"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPrev();
+              }}
+            >
+              ‹
+            </button>
+          )}
+          {onNext !== undefined && (
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-lg text-white"
+              style={{ background: 'rgb(0 0 0 / 55%)' }}
+              title="下一张（→）"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNext();
+              }}
+            >
+              ›
+            </button>
+          )}
+          <button
+            className="absolute top-4 right-4 rounded-full px-2.5 py-1 text-white"
+            style={{ background: 'rgb(0 0 0 / 55%)' }}
+            title="关闭（Esc）"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseZoom?.();
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
     </>

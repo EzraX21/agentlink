@@ -201,6 +201,30 @@ export async function run(ctx) {
   includes(src.chat, '下一条', '会话内搜索可跳下一条');
   includes(src.chat, 'setToast', '复制后有提示');
 
+  section('B1c. 第 2 批再续：@提及 / 未读分隔线 / 多图灯箱 / 窄屏单栏');
+  includes(src2.rich, 'mention', '正文支持 @提及识别');
+  includes(src2.rich, "kind: 'mention'", '提及是独立片段类型');
+  includes(src2.richView, "case 'mention'", '提及有专门渲染');
+  includes(src.chat, '以下为新消息', '有未读分隔线');
+  includes(src.chat, "kind: 'unread'", '分隔线是独立行类型');
+  includes(src.chat, 'unreadOnOpen', '分隔线按打开时的未读数定位');
+
+  const attachSrc = await readFile(
+    `${repoRoot}/packages/web/src/components/AttachmentBlocks.tsx`,
+    'utf8',
+  );
+  includes(attachSrc, 'onPrev', '灯箱支持上一张');
+  includes(attachSrc, 'onNext', '灯箱支持下一张');
+  includes(attachSrc, "e.key === 'ArrowLeft'", '灯箱支持方向键');
+  includes(attachSrc, 'position', '多图时显示 n/m');
+  includes(src.bubble, 'zoomIndex', '同一消息的多张图共享灯箱状态');
+
+  const mediaHook = await readFile(`${repoRoot}/packages/web/src/lib/useMediaQuery.ts`, 'utf8');
+  includes(mediaHook, 'matchMedia', '窄屏用 matchMedia 检测');
+  includes(mediaHook, '(max-width: 767px)', '断点 767px');
+  includes(src.app, 'narrowShowChat', '窄屏单栏：选中会话只看聊天');
+  includes(src.chat, 'onBack', '窄屏有返回按钮');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -216,7 +240,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 42, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥42）`);
+  gte(Number(passed?.[1] ?? 0), 46, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥46）`);
 
   a.close();
   b.close();
