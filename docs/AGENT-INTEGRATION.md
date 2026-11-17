@@ -185,6 +185,25 @@ AGENTLINK_URL=ws://127.0.0.1:3100/ws AGENTLINK_TOKEN=<token> \
   node examples/echo-agent/index.mjs
 ```
 
+## 附件大小上限
+
+默认**单个附件 20 MiB**。要放开用环境变量：
+
+```bash
+MAX_ATTACHMENT_BYTES=0          # 不限制（磁盘就是上限）
+MAX_ATTACHMENT_BYTES=200MiB     # 或指定一个更大的值（也支持纯字节数）
+```
+
+两个实现细节（踩过坑）：
+
+1. **上传是流式落盘的**：边写临时文件边算 sha256，不把整个文件读进内存 ——
+   所以放开上限不会因为 OOM 崩掉进程。
+2. **Fastify 的 `bodyLimit` 默认只有 1 MiB**，而且**路由级覆盖对 multipart 不生效**。
+   之前的表现是"上传成功，但文件只有 1 MiB"——比 413 更隐蔽。
+   现在 `bodyLimit` 跟着附件上限一起算。
+
+前置代理也要一起放开（Caddy 默认不限请求体，Nginx 需要 `client_max_body_size`）。
+
 ## 4. 权限与边界
 
 - agent 是**普通会话成员**：只能看自己被拉进的群；不能建群、不能管人。

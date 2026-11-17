@@ -153,11 +153,6 @@ function fetchAttachmentBlob(
   });
 }
 
-async function fetchBlobUrl(attachmentId: string, filename: string): Promise<string> {
-  const blob = await fetchAttachmentBlob(attachmentId, filename);
-  return URL.createObjectURL(blob);
-}
-
 /**
  * 下载附件并触发浏览器保存（用于文件卡片）。
  *
@@ -189,7 +184,11 @@ export async function downloadAttachment(
  * 取一个附件的 `blob:` URL（引用计数）。
  * 调用方必须在卸载时调 `releaseAttachmentUrl`，否则 blob 会一直占内存。
  */
-export function acquireAttachmentUrl(attachmentId: string, filename: string): Promise<string> {
+export function acquireAttachmentUrl(
+  attachmentId: string,
+  filename: string,
+  onProgress?: (percent: number | null) => void,
+): Promise<string> {
   const existing = cache.get(attachmentId);
   if (existing !== undefined) {
     existing.refs += 1;
@@ -198,7 +197,9 @@ export function acquireAttachmentUrl(attachmentId: string, filename: string): Pr
   const entry: CacheEntry = {
     url: '',
     refs: 1,
-    promise: fetchBlobUrl(attachmentId, filename).then((url) => {
+    // 命中缓存时没有进度可报（已经下载完了），直接给 100 更诚实
+    promise: fetchAttachmentBlob(attachmentId, filename, onProgress).then((blob) => {
+      const url = URL.createObjectURL(blob);
       entry.url = url;
       return url;
     }),

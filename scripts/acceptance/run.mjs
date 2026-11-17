@@ -39,6 +39,8 @@ export const MILESTONES = [
   'ext-typing',
   // 外部 agent 的 HTTP + SSE 接入面（docs/AGENT-INTEGRATION.md）
   'agent-http',
+  // 解除附件大小上限（MAX_ATTACHMENT_BYTES=0）
+  'ext-large-file',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

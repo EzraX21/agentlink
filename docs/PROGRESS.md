@@ -37,6 +37,8 @@
 | **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
 | 外部 agent 流式回复（HTTP）+ Last-Event-ID | ✅ | 2026-11-17 | `run.mjs agent-http` | 51 |
 | 外部 agent 发附件（上传 + 便捷拼块） | ✅ | 2026-11-17 | `run.mjs agent-http` | 67 |
+| 解除附件大小上限（流式落盘） | ✅ | 2026-11-17 | `run.mjs ext-large-file` | 15（25 MiB 往返） |
+| 图片/视频预览弹窗 | ✅ | 2026-11-17 | web 单测 | 115 |
 
 ## 六条验收标准
 

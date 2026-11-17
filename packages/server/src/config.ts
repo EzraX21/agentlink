@@ -26,9 +26,41 @@ export interface Config {
   readonly hooksModule: string | null;
   /** 是否给已存在的库自动跑迁移（默认 true，单进程部署）。 */
   readonly autoMigrate: boolean;
+  /**
+   * 单个附件的字节上限。`0` 表示**不限制**。
+   *
+   * 默认 20 MiB（与需求确认书一致）。想放开就设
+   * `MAX_ATTACHMENT_BYTES=0`（不限制）或一个更大的值。
+   * 注意：不限制时磁盘就是上限 —— 请配合前置代理的请求体限制使用。
+   */
+  readonly maxAttachmentBytes: number;
 }
 
 type Env = Record<string, string | undefined>;
+
+/** 默认 20 MiB；`0` 或负数视为不限制。支持 `20MiB` / `104857600` 两种写法。 */
+const DEFAULT_MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
+export function parseByteLimit(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_MAX_ATTACHMENT_BYTES;
+  const text = raw.trim().toLowerCase();
+  const m = /^(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?$/.exec(text);
+  if (m === null) return DEFAULT_MAX_ATTACHMENT_BYTES;
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return DEFAULT_MAX_ATTACHMENT_BYTES;
+  const unit = m[2] ?? 'b';
+  const mul: Record<string, number> = {
+    b: 1,
+    kb: 1000,
+    kib: 1024,
+    mb: 1000 * 1000,
+    mib: 1024 * 1024,
+    gb: 1000 * 1000 * 1000,
+    gib: 1024 * 1024 * 1024,
+  };
+  const bytes = Math.round(value * (mul[unit] ?? 1));
+  return bytes <= 0 ? 0 : bytes;
+}
 
 function required(env: Env, key: string, hint: string): string {
   const raw = env[key];
@@ -97,5 +129,6 @@ export function loadConfig(env: Env = process.env): Config {
     logLevel: env['LOG_LEVEL'] ?? (nodeEnvRaw === 'test' ? 'silent' : 'info'),
     hooksModule: env['HOOKS_MODULE'] ?? null,
     autoMigrate: bool(env, 'AUTO_MIGRATE', true),
+    maxAttachmentBytes: parseByteLimit(env['MAX_ATTACHMENT_BYTES']),
   };
 }

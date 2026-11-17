@@ -15,6 +15,8 @@ import { WsClient } from './_client.mjs';
 import { openDb, count } from './_db.mjs';
 
 export const needsServer = true;
+/** 本套件要传大文件，放宽测试环境限流。 */
+export const relaxedRateLimit = true;
 
 async function mkUser(http, username, displayName) {
   const res = await http('POST', '/api/auth/register', {

@@ -54,7 +54,14 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     // 关掉 Fastify 自带的请求日志，改用下面的 onResponse 钩子：
     // 只记 method/url/status，不记 header/body，token 不会落日志（施工守则 §8）。
     logController: new LogController({ disableRequestLogging: true }),
-    bodyLimit: 1024 * 1024,
+    // 请求体上限必须容得下**最大的合法请求**，也就是一个附件上传。
+    // 之前写死 1 MiB，导致"放开附件上限后文件仍被截断成 1 MiB"——
+    // 而且路由级 bodyLimit 覆盖对 multipart 不生效，只能在这里设。
+    // JSON 接口的安全不依赖这个值（schema 校验 + 限流 + 字段上限都在别处）。
+    bodyLimit:
+      config.maxAttachmentBytes > 0
+        ? Math.max(1024 * 1024, config.maxAttachmentBytes + 1024 * 1024)
+        : 2 ** 31,
     trustProxy: true,
   });
 

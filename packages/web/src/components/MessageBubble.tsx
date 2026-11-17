@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ContentBlock, Message } from '@agentlink/protocol';
 import { avatarColor, formatTime, initials } from '../lib/format.js';
-import { FileBlockView, ImageBlockView } from './AttachmentBlocks.js';
+import { FileBlockView, ImageBlockView, VideoBlockView } from './AttachmentBlocks.js';
 import { RichText } from './RichText.js';
 
 interface Props {
@@ -179,6 +179,19 @@ export function MessageBubble({
                             }
                           : undefined
                       }
+                    />
+                  );
+                }
+                // 协议只有 image / file 两种块（没有 video 类型），
+                // 所以"是不是视频"只能按文件名判断 —— 不新增协议字段。
+                const looksLikeVideo = /\.(mp4|webm|mov|m4v|ogv|mkv)$/i.test(block.filename ?? '');
+                if (looksLikeVideo) {
+                  return (
+                    <VideoBlockView
+                      key={i}
+                      attachmentId={block.attachment_id}
+                      filename={block.filename}
+                      size={block.size}
                     />
                   );
                 }

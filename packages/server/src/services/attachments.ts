@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile, readFile, stat, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rename, rm, stat, unlink } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { AgentLinkError, type Content } from '@agentlink/protocol';
 import type { Db } from '../db/index.js';
@@ -22,6 +23,11 @@ import { newAttachmentId, nowMs } from '../ids.js';
  *   - 下载要鉴权 + **群成员校验**（施工守则 §8：附件下载校验群成员身份）
  */
 
+/**
+ * 默认上限 20 MiB（需求确认书）。真正生效的值来自 config.maxAttachmentBytes，
+ * 这个常量只作为默认值与文档锚点保留。
+ * `0` 表示不限制（此时磁盘就是上限）。
+ */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 export interface StoredAttachment {
@@ -71,7 +77,16 @@ export class AttachmentService {
   constructor(
     private readonly db: Db,
     private readonly uploadsDir: string,
+    /** 0 = 不限制。默认 20 MiB。 */
+    private readonly maxBytes: number = MAX_ATTACHMENT_BYTES,
   ) {}
+
+  /** 上限的对外可读描述（错误信息里用）。 */
+  private get limitLabel(): string {
+    if (this.maxBytes <= 0) return '不限';
+    const mb = this.maxBytes / (1024 * 1024);
+    return mb >= 1 ? `${Number(mb.toFixed(1))} MiB` : `${this.maxBytes} B`;
+  }
 
   async store(input: {
     uploaderId: string;
@@ -84,9 +99,9 @@ export class AttachmentService {
         issues: [{ path: 'file', message: '空文件' }],
       });
     }
-    if (input.data.byteLength > MAX_ATTACHMENT_BYTES) {
-      throw new AgentLinkError('PAYLOAD_TOO_LARGE', '文件超过 20 MiB', {
-        limit_bytes: MAX_ATTACHMENT_BYTES,
+    if (this.maxBytes > 0 && input.data.byteLength > this.maxBytes) {
+      throw new AgentLinkError('PAYLOAD_TOO_LARGE', `文件超过 ${this.limitLabel}`, {
+        limit_bytes: this.maxBytes,
       });
     }
 
@@ -149,6 +164,122 @@ export class AttachmentService {
    * 附件的消息所在群的成员"判定，规则最简单且不漏：只要你在**任一引用它的群**里
    * 就能下载。
    */
+  /**
+   * 流式存储：边写临时文件边算 sha256，落地后再按内容寻址搬到最终位置。
+   *
+   * 为什么需要它：`store()` 接收的是完整 Buffer，几百 MiB 的文件会直接把
+   * 进程内存打爆。上限放开之后（`MAX_ATTACHMENT_BYTES=0`）这条路径是必须的。
+   */
+  async storeStream(input: {
+    uploaderId: string;
+    filename: string;
+    mime: string | undefined;
+    stream: AsyncIterable<Buffer>;
+    /**
+     * 上传流是否被**截断**（multipart 的 fileSize 限制触发时会把流截断而不是抛错）。
+     * 必须在落库前检查 —— 否则超限文件会被静默存成半截并返回 201，
+     * 这比报错危险得多（用户以为传上去了）。
+     */
+    truncated?: () => boolean;
+  }): Promise<StoredAttachment> {
+    const filename = safeFilename(input.filename);
+    const mime = guessMime(filename, input.mime);
+    const tmpDir = resolve(this.uploadsDir, 'tmp');
+    await mkdir(tmpDir, { recursive: true });
+    const tmpPath = resolve(tmpDir, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+
+    const hash = createHash('sha256');
+    let total = 0;
+    const out = createWriteStream(tmpPath);
+    try {
+      for await (const chunk of input.stream) {
+        total += chunk.byteLength;
+        if (this.maxBytes > 0 && total > this.maxBytes) {
+          throw new AgentLinkError('PAYLOAD_TOO_LARGE', `文件超过 ${this.limitLabel}`, {
+            limit_bytes: this.maxBytes,
+          });
+        }
+        hash.update(chunk);
+        if (!out.write(chunk)) {
+          await new Promise<void>((res) => out.once('drain', () => res()));
+        }
+      }
+      await new Promise<void>((res, rej) => out.end((err?: Error | null) => (err ? rej(err) : res())));
+
+      if (input.truncated?.() === true) {
+        throw new AgentLinkError('PAYLOAD_TOO_LARGE', `文件超过 ${this.limitLabel}`, {
+          limit_bytes: this.maxBytes,
+        });
+      }
+    } catch (err) {
+      out.destroy();
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      throw err;
+    }
+
+    if (total === 0) {
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      throw new AgentLinkError('VALIDATION_FAILED', '文件内容为空', {
+        issues: [{ path: 'file', message: '空文件' }],
+      });
+    }
+
+    const sha256 = hash.digest('hex');
+    const relPath = contentPath(sha256);
+    const absPath = resolve(this.uploadsDir, relPath);
+    await mkdir(dirname(absPath), { recursive: true });
+
+    const existing = await stat(absPath).catch(() => null);
+    if (existing !== null) {
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      return this.#record({ sha256, filename, mime, size: total, uploaderId: input.uploaderId, relPath });
+    }
+    await rename(tmpPath, absPath);
+    return this.#record({ sha256, filename, mime, size: total, uploaderId: input.uploaderId, relPath });
+  }
+
+  /** 落一条 attachments 记录（同 sha256 复用已有 id，避免一份内容多个 id）。 */
+  #record(input: {
+    sha256: string;
+    filename: string;
+    mime: string;
+    size: number;
+    uploaderId: string;
+    relPath: string;
+  }): StoredAttachment {
+    const existingRow = findAttachmentBySha(this.db, input.sha256);
+    if (existingRow) {
+      return {
+        attachmentId: existingRow.id,
+        filename: existingRow.filename,
+        mime: existingRow.mime,
+        size: existingRow.size,
+        sha256: input.sha256,
+        deduped: true,
+      };
+    }
+    const id = newAttachmentId();
+    insertAttachment(this.db, {
+      id,
+      tenantId: 'default',
+      uploaderId: input.uploaderId,
+      filename: input.filename,
+      mime: input.mime,
+      size: input.size,
+      sha256: input.sha256,
+      path: input.relPath,
+      createdAt: nowMs(),
+    });
+    return {
+      attachmentId: id,
+      filename: input.filename,
+      mime: input.mime,
+      size: input.size,
+      sha256: input.sha256,
+      deduped: false,
+    };
+  }
+
   async load(input: {
     attachmentId: string;
     userId: string;

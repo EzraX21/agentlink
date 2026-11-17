@@ -16,14 +16,21 @@ export async function attachmentRoutes(
   app: FastifyInstance,
   services: AppServices,
 ): Promise<void> {
-  const svc = new AttachmentService(services.dbc.db, services.config.uploadsDir);
+  // 上限来自配置：默认 20 MiB，`MAX_ATTACHMENT_BYTES=0` 表示不限制
+  const maxBytes = services.config.maxAttachmentBytes;
+
+  /**
+   * Fastify 自身的 bodyLimit（默认 **1 MiB**）会先把请求体截断 ——
+   * 表现是"上传成功但文件只有 1 MiB"，比 multipart 的 fileSize 限制更隐蔽
+   * （后者会走到我们的 413 分支）。这里给上传路由单独放开：
+   * 有上限时留一点余量给 multipart 边界，不限时就给一个足够大的值。
+   */
+  const uploadBodyLimit = maxBytes > 0 ? maxBytes + 1024 * 1024 : 2 ** 31;
+  const svc = new AttachmentService(services.dbc.db, services.config.uploadsDir, maxBytes);
 
   await app.register(multipart, {
-    limits: {
-      fileSize: MAX_ATTACHMENT_BYTES,
-      files: 1,
-      // 字段用默认限制即可
-    },
+    // 不限制时不要传 fileSize（传 Infinity 会被 fastify 当成非法值）
+    limits: maxBytes > 0 ? { fileSize: maxBytes, files: 1 } : { files: 1 },
     throwFileSizeLimit: false,
   });
 
@@ -46,32 +53,15 @@ export async function attachmentRoutes(
         });
       }
 
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for await (const chunk of file.file) {
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-        total += buf.byteLength;
-        if (total > MAX_ATTACHMENT_BYTES) {
-          // 协议一致：超限用 PAYLOAD_TOO_LARGE，HTTP 层映射到 413
-          throw new AgentLinkError('PAYLOAD_TOO_LARGE', '文件超过 20 MiB', {
-            limit_bytes: MAX_ATTACHMENT_BYTES,
-          });
-        }
-        chunks.push(buf);
-      }
-
-      // multipart 自带的大小限制触发时，流会被截断并置 truncated
-      if (file.file.truncated) {
-        throw new AgentLinkError('PAYLOAD_TOO_LARGE', '文件超过 20 MiB', {
-          limit_bytes: MAX_ATTACHMENT_BYTES,
-        });
-      }
-
-      const stored = await svc.store({
+      // 流式落盘：边写边算 sha256，不把整个文件读进内存 ——
+      // 上限放开之后（MAX_ATTACHMENT_BYTES=0）这一步是必须的，否则几百 MiB
+      // 的文件会直接把进程内存打爆。
+      const stored = await svc.storeStream({
         uploaderId: who.userId,
         filename: file.filename,
         mime: file.mimetype,
-        data: Buffer.concat(chunks),
+        stream: file.file as AsyncIterable<Buffer>,
+        truncated: () => file.file.truncated,
       });
 
       return reply.code(201).send({
@@ -93,8 +83,8 @@ export async function attachmentRoutes(
         return reply.code(413).send({
           error: {
             code: 'PAYLOAD_TOO_LARGE',
-            message: '文件超过 20 MiB',
-            details: { limit_bytes: MAX_ATTACHMENT_BYTES },
+            message: maxBytes > 0 ? `文件超过 ${Math.round(maxBytes / (1024 * 1024))} MiB` : '文件过大',
+            details: { limit_bytes: maxBytes },
           },
         });
       }
@@ -102,9 +92,9 @@ export async function attachmentRoutes(
     }
   };
 
-  app.post('/api/attachments', handleUpload);
+  app.post('/api/attachments', { bodyLimit: uploadBodyLimit }, handleUpload);
   // 外部 agent 的上传入口（同一个处理函数，只是路径挂在 /api/agent 下）
-  app.post('/api/agent/attachments', handleUpload);
+  app.post('/api/agent/attachments', { bodyLimit: uploadBodyLimit }, handleUpload);
 
   app.get<{ Params: { id: string; filename: string } }>(
     '/api/attachments/:id/:filename',

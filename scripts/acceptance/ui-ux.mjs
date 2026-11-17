@@ -248,7 +248,9 @@ export async function run(ctx) {
   );
   includes(attachSrc, 'onPrev', '灯箱支持上一张');
   includes(attachSrc, 'onNext', '灯箱支持下一张');
-  includes(attachSrc, "e.key === 'ArrowLeft'", '灯箱支持方向键');
+  // 方向键逻辑从 AttachmentBlocks 抽到了 MediaViewer（图片与视频共用弹窗）
+  const viewerSrc = await readFile(`${repoRoot}/packages/web/src/components/MediaViewer.tsx`, 'utf8');
+  includes(viewerSrc, "e.key === 'ArrowLeft'", '预览弹窗支持方向键');
   includes(attachSrc, 'position', '多图时显示 n/m');
   includes(src.bubble, 'zoomIndex', '同一消息的多张图共享灯箱状态');
 

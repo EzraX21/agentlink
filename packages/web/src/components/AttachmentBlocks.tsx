@@ -5,6 +5,7 @@ import {
   formatBytes,
   releaseAttachmentUrl,
 } from '../lib/attachments.js';
+import { MediaViewer } from './MediaViewer.js';
 
 /**
  * 图片块：带鉴权取字节 → blob URL → <img>（原因见 lib/attachments.ts 顶部注释）。
@@ -104,79 +105,121 @@ export function ImageBlockView({
           cursor: 'zoom-in',
         }}
       />
-      {zoomed && (
-        <div
-          className="fixed inset-0 z-[60] grid place-items-center"
-          style={{ background: 'rgb(0 0 0 / 82%)' }}
-          onClick={() => onCloseZoom?.()}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowLeft') onPrev?.();
-            if (e.key === 'ArrowRight') onNext?.();
-            if (e.key === 'Escape') onCloseZoom?.();
-          }}
-          tabIndex={-1}
-          ref={(el) => el?.focus()}
+      {zoomed && url !== null && (
+        <MediaViewer
+          title={filename ?? '图片'}
+          position={position ?? null}
+          onClose={() => onCloseZoom?.()}
+          onPrev={onPrev}
+          onNext={onNext}
         >
           <img
             src={url}
             alt={filename ?? '图片'}
-            style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 8 }}
-            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '92vw', maxHeight: '82vh', borderRadius: 6 }}
+            onMouseDown={(e) => e.stopPropagation()}
           />
-
-          {position !== null && position !== undefined && (
-            <div
-              className="absolute top-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-xs text-white"
-              style={{ background: 'rgb(0 0 0 / 60%)' }}
-            >
-              {position.index}/{position.total}
-            </div>
-          )}
-
-          {onPrev !== undefined && (
-            <button
-              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-lg text-white"
-              style={{ background: 'rgb(0 0 0 / 55%)' }}
-              title="上一张（←）"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPrev();
-              }}
-            >
-              ‹
-            </button>
-          )}
-          {onNext !== undefined && (
-            <button
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-3 py-2 text-lg text-white"
-              style={{ background: 'rgb(0 0 0 / 55%)' }}
-              title="下一张（→）"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNext();
-              }}
-            >
-              ›
-            </button>
-          )}
-          <button
-            className="absolute top-4 right-4 rounded-full px-2.5 py-1 text-white"
-            style={{ background: 'rgb(0 0 0 / 55%)' }}
-            title="关闭（Esc）"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloseZoom?.();
-            }}
-          >
-            ✕
-          </button>
-        </div>
+        </MediaViewer>
       )}
     </>
   );
 }
 
 /** 文件块：名称 + 大小 + 下载（同样走带鉴权的 fetch）。 */
+/**
+ * 视频块：卡片 + 「播放」，点开才取字节并在弹窗里播放。
+ *
+ * 不预载的原因和文件一样：群里贴 20 段视频，进群就把 20 个视频全拉一遍，
+ * 流量和内存都白费（而且浏览器还会去解析元数据）。
+ */
+export function VideoBlockView({
+  attachmentId,
+  filename,
+  size,
+}: {
+  attachmentId: string;
+  filename?: string | undefined;
+  size?: number | undefined;
+}): React.JSX.Element {
+  const [preview, setPreview] = useState<{ url: string; kind: 'video' } | null>(null);
+  const [percent, setPercent] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = filename ?? '视频';
+
+  async function open(): Promise<void> {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    setPercent(0);
+    try {
+      const url = await acquireAttachmentUrl(attachmentId, name, (p) => setPercent(p));
+      setPreview({ url, kind: 'video' });
+      setPercent(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '视频加载失败');
+      setPercent(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <div
+        className="mt-1 flex max-w-[340px] items-center gap-2 rounded-lg px-2 py-2"
+        style={{ background: 'var(--al-bg-hover)' }}
+      >
+        <span aria-hidden style={{ fontSize: 18 }}>
+          🎬
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px]">{name}</div>
+          <div className="al-muted text-[11px]">
+            {error !== null
+              ? error
+              : loading
+                ? percent === null
+                  ? '加载中…'
+                  : `加载中 ${percent}%`
+                : size !== undefined
+                  ? formatBytes(size)
+                  : '视频'}
+          </div>
+        </div>
+        <button
+          className="al-btn-ghost shrink-0 !px-2 !py-0.5 text-[11px]"
+          onClick={() => void open()}
+          disabled={loading}
+          aria-label={`播放 ${name}`}
+        >
+          {loading ? '…' : '播放'}
+        </button>
+      </div>
+
+      {preview !== null && (
+        <MediaViewer
+          title={name}
+          caption={size !== undefined ? formatBytes(size) : undefined}
+          onClose={() => {
+            releaseAttachmentUrl(attachmentId);
+            setPreview(null);
+          }}
+        >
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            src={preview.url}
+            controls
+            autoPlay
+            style={{ maxWidth: '92vw', maxHeight: '82vh', borderRadius: 6 }}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        </MediaViewer>
+      )}
+    </>
+  );
+}
+
 export function FileBlockView({
   attachmentId,
   filename,
