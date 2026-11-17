@@ -34,6 +34,7 @@
 | *补：打字提示客户端一半（协议未扩，按 §12 降级） | ✅ | 2026-11-17 | `run.mjs ui-ux` | 132 + 100 单测 |
 | **扩展 1**：`typing.send`（M6 验收第 2 条解锁） | ✅ | 2026-11-17 | `run.mjs ext-typing` | 18 + `ui-browser` 双窗 |
 | 扩展待做：回应/编辑/置顶/已读/转发 | ⏸ | — | `docs/PROPOSAL-protocol-ext.md` | 方案已就绪 |
+| **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
 
 ## 六条验收标准
 

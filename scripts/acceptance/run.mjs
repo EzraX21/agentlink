@@ -37,6 +37,8 @@ export const MILESTONES = [
   'visual',
   // 协议扩展验收（经用户批准后新增，见 docs/PROPOSAL-protocol-ext.md）
   'ext-typing',
+  // 外部 agent 的 HTTP + SSE 接入面（docs/AGENT-INTEGRATION.md）
+  'agent-http',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

@@ -637,3 +637,46 @@ Enter/空格等价于右键。
 **为什么值得记**：这个 bug 不会让 CI 变红（旧测试通常是过的），只会让数字虚高、
 让"改了却没生效"看起来像玄学。测试数量虚高一倍这种事，靠审阅数字是发现不了的 ——
 必须是某次"我改了但断言说没改"才会撞出来。
+
+---
+
+## 2026-11-17 · agent 是"外部接入方"，不是内置模型
+
+用户澄清了定位：**AgentLink 不接模型**。它的 "agent" 是给外部 AI 运行时
+（Claude Code、openclaw、DSH、hermes、脚本）用的接入身份，服务端只做消息通道。
+
+**这带来两件事**：
+
+1. **修正容易误解的地方**：`examples/llm-agent` 里确实在调 `/chat/completions`，
+   但那是**调用方**接入了模型 —— 服务端不知道也不关心。该示例已加醒目注释，
+   并新增 `examples/http-agent`（纯 HTTP，零模型依赖）作为对照。
+   验收里加了客观断言：服务端源码不含任何模型 SDK/端点，http-agent 也不含。
+
+2. **补上真正缺的入口：HTTP + SSE 桥**（`/api/agent/*`）。
+   之前外部 agent **必须说 WebSocket** —— 要自己维护连接、重连退避、seq 补发，
+   对 CLI 类运行时成本很高。现在：
+
+   | 端点 | 用途 |
+   |---|---|
+   | `GET /api/agent/self` | 我是谁（响应里写明"只提供消息通道"） |
+   | `GET /api/agent/convs` | 我可见的会话 |
+   | `GET /api/agent/history` | 历史分页 |
+   | `POST /api/agent/messages` | 发消息（`client_msg_id` 幂等） |
+   | `POST /api/agent/typing` | 正在输入（瞬时） |
+   | `GET /api/agent/events` | **SSE** 持续收事件，`since=<seq>` 断点续拉 |
+   | `GET /api/agent/events?once=1` | 一次性批量（给 shell 用） |
+
+**关键取舍：这不是新增协议 op/evt**，而是把 WS 已有的服务端函数
+（`sendMessage` / `fetchHistory` / `listConversations`）换个入口暴露出去 ——
+所以两个通道语义完全一致，事件帧形状也一样（`{v,kind:'evt',type,seq,ts,data}`），
+客户端逻辑可以复用。WS 侧一行没动。
+
+**SSE 走数据库而不是订阅 hub**：直接用 `events` 表按 `seq` 增量拉。
+好处是**天然可补发、跨实例一致**（hub 是单实例内存），代价是只有持久化事件能走
+这条路 —— `typing`/`poke` 这类瞬时事件不进 SSE（它们过期即无用，本来也不需要）。
+需要逐字流式（`stream.delta`）时仍应使用 WebSocket。
+
+**验收**（`agent-http`，31 项）：身份/会话/历史/发消息、**幂等**（同 `client_msg_id`
+重发只有一条）、WS↔HTTP 双向（HTTP 发的消息 WS 收到，人发的消息经 SSE 被 agent 收到）、
+SSE `content-type` 与帧形状、`?once=1`、非成员 403、缺 token 401、
+以及"服务端与 http-agent 都不含模型调用"的客观断言。
