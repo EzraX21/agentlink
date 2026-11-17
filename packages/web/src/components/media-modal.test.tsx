@@ -262,3 +262,39 @@ describe('已读双勾', () => {
     expect(screen.queryByLabelText('已送达，未读')).toBeNull();
   });
 });
+
+describe('弹窗必须是独立浮层（不随消息滚动）', () => {
+  it('Modal 通过 portal 挂到 body，而不是留在渲染它的容器里', () => {
+    const { container } = render(
+      <div data-testid="message-list">
+        <MediaViewer {...viewerProps()}>
+          <img alt="预览" />
+        </MediaViewer>
+      </div>,
+    );
+    const dialog = screen.getByRole('dialog');
+    // 不在"消息列表"容器里
+    expect(container.contains(dialog)).toBe(false);
+    // 但确实挂在 body 上（能正常显示与查询）
+    expect(document.body.contains(dialog)).toBe(true);
+  });
+
+  it('滚动容器里的弹窗位置不受容器影响（结构上已脱离）', () => {
+    render(
+      <div data-testid="scroller" style={{ contain: 'strict', overflow: 'auto', height: 100 }}>
+        <MediaViewer {...viewerProps()}>
+          <img alt="预览" />
+        </MediaViewer>
+      </div>,
+    );
+    const dialog = screen.getByRole('dialog');
+    // 祖先链里没有那个带 contain:strict 的滚动容器
+    let node: HTMLElement | null = dialog.parentElement;
+    let foundScroller = false;
+    while (node !== null) {
+      if (node.dataset['testid'] === 'scroller') foundScroller = true;
+      node = node.parentElement;
+    }
+    expect(foundScroller).toBe(false);
+  });
+});

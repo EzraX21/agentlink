@@ -232,6 +232,32 @@ export async function run(ctx) {
         };
       });
       ok(media.hasCard, '预览用的是 .al-card 卡片（与群公告同一个外壳）');
+
+      // 关键回归：弹窗必须挂在 body 上，滚动消息列表时它不能跟着动。
+      // 之前它渲染在消息气泡内部，而滚动容器带 contain:strict，
+      // 于是 position:fixed 被关在容器里 —— 弹窗跟着消息滚、还会被裁掉。
+      const before = await page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]');
+        const r = dlg.getBoundingClientRect();
+        return {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          parentIsBody: dlg.parentElement?.parentElement === document.body,
+        };
+      });
+      ok(before.parentIsBody, '弹窗通过 portal 挂在 body 上（不在消息列表里）');
+
+      await page.locator('.al-chat-bg').first().evaluate((el) => {
+        el.scrollTop = Math.max(0, el.scrollTop - 300);
+      });
+      await page.waitForTimeout(300);
+      const after = await page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]');
+        const r = dlg.getBoundingClientRect();
+        return { x: Math.round(r.x), y: Math.round(r.y) };
+      });
+      eq(after.x, before.x, `滚动消息后弹窗 x 不变（${before.x}）`);
+      eq(after.y, before.y, `滚动消息后弹窗 y 不变（${before.y}）`);
       await page.keyboard.press('Escape');
       await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
 

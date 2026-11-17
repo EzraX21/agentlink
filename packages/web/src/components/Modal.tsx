@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * 对话框的可访问性外壳（模态语义 + 焦点管理）。
@@ -74,7 +75,15 @@ export function Modal({
     };
   }, [onClose]);
 
-  return (
+  /**
+   * 必须挂到 `document.body`（portal），不能就地渲染。
+   *
+   * 媒体预览/对话框是从消息气泡里打开的，而消息列表的滚动容器带
+   * `contain: strict`（虚拟滚动需要）—— 它会给 `position: fixed` 的子元素
+   * 造一个新的包含块。结果就是弹窗**跟着消息一起滚**、还会被容器裁掉。
+   * 挂到 body 上就彻底脱离消息列表，成为真正的独立弹窗。
+   */
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center"
       style={{ background: 'rgb(0 0 0 / 45%)' }}
@@ -95,6 +104,7 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
