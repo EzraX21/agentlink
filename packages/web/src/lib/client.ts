@@ -295,6 +295,21 @@ export class ProtocolClient {
     return res.data as T;
   }
 
+  /**
+   * 立即重连（跳过指数退避）。
+   * 断线横幅上"立即重试"按钮用：用户不想等 10 秒的退避。
+   */
+  retryNow(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.backoffMs = 500;
+    void this.#openAndAuth().catch(() => {
+      this.#scheduleReconnect();
+    });
+  }
+
   disconnect(): void {
     this.stopped = true;
     if (this.reconnectTimer !== null) {

@@ -17,9 +17,12 @@
     "e2e:install": "PLAYWRIGHT_BROWSERS_PATH=../.runtime/pw-browsers playwright-core install chromium"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "ws": "8.23.0",
+    "@types/pngjs": "^6.0.5",
     "@types/ws": "8.18.2",
-    "playwright-core": "1.65.1"
+    "pixelmatch": "^8.0.0",
+    "playwright-core": "1.65.1",
+    "pngjs": "^7.0.0",
+    "typescript": "5.9.3",
+    "ws": "8.23.0"
   }
 }

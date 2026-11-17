@@ -51,6 +51,11 @@ node scripts/acceptance/run.mjs m0            # 单个里程碑
 node scripts/acceptance/run.mjs m0 m1 m2      # 按顺序跑多个
 node scripts/acceptance/run.mjs all           # 全部（含 Docker 与真浏览器）
 ./scripts/verify.sh --no-browser --no-docker  # 只要构建+类型+单测+逻辑验收
+
+# 两个"按需"套件（不进默认门禁，原因见 outputs）
+node scripts/acceptance/run.mjs perf     # 真浏览器帧率/长任务 → reports/perf.md
+node scripts/acceptance/run.mjs visual   # 截图像素比对（基线在 packages/web/e2e-baselines/）
+UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建基线
 ```
 
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。

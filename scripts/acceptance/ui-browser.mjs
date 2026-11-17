@@ -219,13 +219,25 @@ export async function run(ctx) {
     await page.screenshot({ path: path.join(SHOT_DIR, '06-search.png') });
     await page.keyboard.press('Escape');
 
-    section('7. 管理页（真实路由 + 五个分区）');
+    section('7. 管理页（真实路由 + 五个分区 + 按需加载）');
     await page.goto(`${baseUrl}/#/admin`, { waitUntil: 'networkidle' });
     await page.waitForSelector('text=概览', { timeout: 15_000 });
     for (const label of ['概览', '账号', 'Agent', '群组', '审计日志']) {
       ok((await page.locator(`text=${label}`).count()) > 0, `管理页有「${label}」分区`);
     }
     await page.screenshot({ path: path.join(SHOT_DIR, '07-admin.png'), fullPage: true });
+
+    // 管理页是独立 chunk：打开之后才应出现在资源列表里（首屏 bundle 不含它）
+    const assetNames = await page.evaluate(() =>
+      performance
+        .getEntriesByType('resource')
+        .map((e) => e.name)
+        .filter((n) => n.includes('/assets/')),
+    );
+    ok(
+      assetNames.some((n) => /AdminPage-[^/]+\.js/.test(n)),
+      '管理页作为独立 chunk 被按需加载（不在首屏 bundle 里）',
+    );
 
     section('8. 窄屏（390×844）单栏布局');
     await page.setViewportSize({ width: 390, height: 844 });
@@ -242,13 +254,46 @@ export async function run(ctx) {
     await page.waitForSelector('text=浏览器测试群', { timeout: 5000 });
     ok(true, '点返回回到会话列表');
 
-    section('9. 控制台没有报错');
+    section('9. 断线重连：横幅要醒目，恢复后要提示');
+    // 回到聊天页（前面在窄屏）
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=浏览器测试群', { timeout: 20_000 });
+    await page.click('text=浏览器测试群');
+    await page.waitForSelector('[data-message-id]', { timeout: 10_000 });
+
+    // 杀掉服务端：客户端应显示醒目的横幅（不是一个小圆点）
+    await ctx.kill9Server();
+    const banner = page.locator('[role="alert"]', { hasText: '实时连接已断开' });
+    await banner.waitFor({ timeout: 20_000 });
+    ok(true, '断线后出现醒目横幅（role=alert）');
+    ok(
+      (await page.getByRole('button', { name: '立即重试' }).count()) === 1,
+      '横幅上有"立即重试"',
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, '09-offline.png') });
+
+    // 重启服务端 → 客户端自动重连并提示"连接已恢复"
+    await ctx.startServer();
+    await page.locator('[role="status"]', { hasText: '连接已恢复' }).waitFor({ timeout: 40_000 });
+    ok(true, '重连后出现"连接已恢复"提示');
+    await banner.waitFor({ state: 'hidden', timeout: 20_000 });
+    ok(true, '横幅在恢复后消失');
+    await page.screenshot({ path: path.join(SHOT_DIR, '10-reconnected.png') });
+
+    section('10. 控制台没有报错');
+    // 第 9 步是**故意**杀服务端来验证断线横幅，此时浏览器的 WS 连接失败是预期内的，
+    // 不能算"页面报错"。除此之外的错误一律不放过。
     const realErrors = consoleErrors.filter(
-      (e) => !/favicon|Failed to load resource: the server responded with a status of 404/i.test(e),
+      (e) =>
+        !/favicon/i.test(e) &&
+        !/Failed to load resource: the server responded with a status of 404/i.test(e) &&
+        !/WebSocket connection to .* failed/i.test(e) &&
+        !/ERR_CONNECTION_REFUSED/i.test(e),
     );
     eq(realErrors.length, 0, `浏览器控制台无错误${realErrors.length > 0 ? `：${realErrors[0]}` : ''}`);
 
-    section('10. 截图产物');
+    section('11. 截图产物');
     ok(true, `截图已存到 ${SHOT_DIR}`);
   } finally {
     await page.close().catch(() => undefined);

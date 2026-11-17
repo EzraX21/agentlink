@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Member, Message } from '@agentlink/protocol';
 import { CreateGroupDialog } from './components/CreateGroupDialog.js';
 import { SearchPanel } from './components/SearchPanel.js';
 import { GroupInfoDialog } from './components/GroupInfoDialog.js';
-import { AdminPage } from './pages/AdminPage.js';
+// 管理页按需加载：只有管理员会进，没必要压进首屏 bundle
+const AdminPage = lazy(() =>
+  import('./pages/AdminPage.js').then((m) => ({ default: m.AdminPage })),
+);
 import { adminPath, navigate, useRoute } from './lib/router.js';
 import { ChatWindow } from './components/ChatWindow.js';
 import { ConversationList } from './components/ConversationList.js';
@@ -493,6 +496,23 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
+  // 连接恢复时给一个短暂的"已连接"提示（断线时用户已经受惊了）
+  const [reconnectedFlash, setReconnectedFlash] = useState(false);
+  const wasDisconnected = useRef(false);
+  useEffect(() => {
+    if (!connected) {
+      wasDisconnected.current = true;
+      return;
+    }
+    if (wasDisconnected.current) {
+      wasDisconnected.current = false;
+      setReconnectedFlash(true);
+      const t = window.setTimeout(() => setReconnectedFlash(false), 2500);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [connected]);
+
   // 快捷键：Ctrl/Cmd+K 搜索，Esc 关闭面板
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -534,13 +554,21 @@ export function App(): React.JSX.Element {
   // 管理页是独立视图（需求确认书 §5：WebUI 管理面板），走 hash 路由
   if (route.name === 'admin') {
     return (
-      <AdminPage
-        selfId={self?.id ?? ''}
-        isAdmin={isAdmin}
-        section={route.section}
-        onBack={() => navigate('/')}
-        onCreateGroup={(title) => createGroup(title, [])}
-      />
+      <Suspense
+        fallback={
+          <div className="grid h-full place-items-center">
+            <span className="al-muted text-sm">管理页加载中…</span>
+          </div>
+        }
+      >
+        <AdminPage
+          selfId={self?.id ?? ''}
+          isAdmin={isAdmin}
+          section={route.section}
+          onBack={() => navigate('/')}
+          onCreateGroup={(title) => createGroup(title, [])}
+        />
+      </Suspense>
     );
   }
 
@@ -549,7 +577,38 @@ export function App(): React.JSX.Element {
   const narrowShowList = narrow && activeConv === null;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col">
+      {!connected && (
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-1.5 text-xs text-white"
+          style={{ background: '#b3261e' }}
+          role="alert"
+        >
+          <span>
+            与服务器的实时连接已断开 —— 正在自动重连。期间收不到新消息，
+            你发出的消息会等连接恢复后重试。
+          </span>
+          <button
+            className="shrink-0 rounded px-2 py-0.5"
+            style={{ background: 'rgb(255 255 255 / 22%)' }}
+            onClick={() => clientRef.current?.retryNow()}
+          >
+            立即重试
+          </button>
+        </div>
+      )}
+
+      {reconnectedFlash && (
+        <div
+          className="px-4 py-1.5 text-center text-xs text-white"
+          style={{ background: '#2e7d32' }}
+          role="status"
+        >
+          连接已恢复
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
       {!narrowShowChat && (showSearch ? (
         <div className="shrink-0" style={{ width: sidebarWidth }}>
           <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
@@ -723,6 +782,7 @@ export function App(): React.JSX.Element {
           onCreate={createGroup}
         />
       )}
+      </div>
     </div>
   );
 }
