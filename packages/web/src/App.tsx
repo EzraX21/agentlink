@@ -699,6 +699,11 @@ export function App(): React.JSX.Element {
           onTogglePin={togglePin}
           onMarkRead={markRead}
           width={sidebarWidth}
+          connected={connected}
+          theme={theme}
+          onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+          isAdmin={isAdmin}
+          onOpenAdmin={() => navigate(adminPath('overview'))}
         />
       ))}
 
@@ -813,30 +818,9 @@ export function App(): React.JSX.Element {
         />
       )}
 
-      <div className="fixed bottom-3 right-3 z-40 flex items-center gap-2 text-xs">
-        <span
-          className="rounded-full px-2 py-1"
-          style={{
-            background: connected ? '#2e7d32' : '#c62828',
-            color: '#fff',
-          }}
-          title={connected ? '实时连接正常' : '已断开，正在重连'}
-        >
-          {connected ? '● 已连接' : '○ 重连中'}
-        </span>
-        <button className="al-btn-ghost" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
-          {theme === 'light' ? '🌙' : '☀️'}
-        </button>
-        {isAdmin && (
-          <button className="al-btn-ghost" onClick={() => navigate(adminPath('overview'))}>
-            管理
-          </button>
-        )}
-      </div>
-
       {lastError !== null && (
         <div
-          className="fixed bottom-14 right-3 z-40 max-w-[320px] rounded-lg px-3 py-2 text-xs text-white"
+          className="fixed bottom-4 left-1/2 z-40 max-w-[420px] -translate-x-1/2 rounded-lg px-3 py-2 text-xs text-white"
           style={{ background: 'var(--al-danger)' }}
           onClick={() => setError(null)}
           role="alert"

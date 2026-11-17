@@ -22,6 +22,13 @@ interface Props {
   onMarkRead: (convId: string) => void;
   /** 侧栏宽度（拖拽调整）。 */
   width: number;
+  /** 连接状态与全局操作放这里：原来它们固定浮在聊天区右下角，会和
+   *  「↓ 回到底部」按钮重叠。 */
+  connected?: boolean;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
+  isAdmin?: boolean;
+  onOpenAdmin?: () => void;
 }
 
 /** 左侧会话列表（需求确认书 §10.3：左侧会话列表 + 右侧聊天窗）。 */
@@ -53,6 +60,11 @@ export function ConversationList({
   onTogglePin,
   onMarkRead,
   width,
+  connected = true,
+  theme,
+  onToggleTheme,
+  isAdmin = false,
+  onOpenAdmin,
 }: Props): React.JSX.Element {
   const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -269,13 +281,42 @@ export function ConversationList({
       )}
 
       <footer
-        className="flex items-center justify-between px-3 py-2 text-xs"
+        className="flex flex-col gap-1 px-3 py-2 text-xs"
         style={{ borderTop: '1px solid var(--al-border)' }}
       >
-        <span className="truncate">{selfName}</span>
-        <button className="al-muted" onClick={onLogout}>
-          退出
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate">{selfName}</span>
+          <button className="al-muted shrink-0" onClick={onLogout}>
+            退出
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[10px]"
+            style={{ background: connected ? '#2e7d32' : '#c62828', color: '#fff' }}
+            title={connected ? '实时连接正常' : '已断开，正在重连'}
+            aria-live="polite"
+          >
+            {connected ? '● 已连接' : '○ 重连中'}
+          </span>
+          <div className="flex items-center gap-1">
+            {onToggleTheme !== undefined && (
+              <button
+                className="al-btn-ghost !px-1.5 !py-0.5"
+                onClick={onToggleTheme}
+                aria-label={theme === 'light' ? '切换到深色主题' : '切换到浅色主题'}
+                title={theme === 'light' ? '深色主题' : '浅色主题'}
+              >
+                {theme === 'light' ? '🌙' : '☀️'}
+              </button>
+            )}
+            {isAdmin && onOpenAdmin !== undefined && (
+              <button className="al-btn-ghost !px-1.5 !py-0.5" onClick={onOpenAdmin}>
+                管理
+              </button>
+            )}
+          </div>
+        </div>
       </footer>
     </aside>
   );

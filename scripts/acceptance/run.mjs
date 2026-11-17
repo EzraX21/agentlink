@@ -96,6 +96,8 @@ class ServerHandle {
   constructor({ port, dataDir }) {
     this.port = port;
     this.dataDir = dataDir;
+    /** 套件声明的服务端环境（如 PUBLIC_DIR），重启/崩溃恢复时必须继续带上。 */
+    this.suiteEnv = {};
     this.proc = null;
     this.logs = '';
     this.baseUrl = `http://127.0.0.1:${port}`;
@@ -115,6 +117,7 @@ class ServerHandle {
       UPLOADS_DIR: path.join(this.dataDir, 'uploads'),
       LOG_LEVEL: 'info',
       AUTO_MIGRATE: 'true',
+      ...this.suiteEnv,
       // 浏览器验收需要知道 Chromium 装在哪里（HOME 只读时默认位置不可用）
       PLAYWRIGHT_BROWSERS_PATH:
         process.env.PLAYWRIGHT_BROWSERS_PATH ??
@@ -278,6 +281,8 @@ async function runOne(name) {
               }),
             }
           : {};
+      // 先登记套件环境，之后 kill9 恢复 / restart 都会带上它
+      handle.suiteEnv = { ...(mod.serverEnv ?? {}) };
       await handle.start({ ...scaleEnv, ...(mod.serverEnv ?? {}) });
       started = true;
     }

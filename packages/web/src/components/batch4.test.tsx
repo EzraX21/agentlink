@@ -187,6 +187,54 @@ describe('会话列表右键菜单', () => {
   });
 });
 
+describe('侧栏底部的连接状态与全局操作', () => {
+  const convs: Conversation[] = [{ ...CONV, id: 'c1', title: '会话一' }];
+
+  function listProps(overrides: Partial<React.ComponentProps<typeof ConversationList>> = {}) {
+    return {
+      convs,
+      activeConvId: null,
+      messages: {},
+      onSelect: vi.fn(),
+      onNewGroup: vi.fn(),
+      selfName: '我',
+      onLogout: vi.fn(),
+      onOpenSearch: vi.fn(),
+      unread: {},
+      pinned: [],
+      onTogglePin: vi.fn(),
+      onMarkRead: vi.fn(),
+      width: 300,
+      ...overrides,
+    } satisfies React.ComponentProps<typeof ConversationList>;
+  }
+
+  it('显示连接状态、主题切换与管理入口', () => {
+    const onToggleTheme = vi.fn();
+    const onOpenAdmin = vi.fn();
+    render(
+      <ConversationList
+        {...listProps({ theme: 'light', onToggleTheme, isAdmin: true, onOpenAdmin })}
+      />,
+    );
+    expect(screen.getByText('● 已连接')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('切换到深色主题'));
+    expect(onToggleTheme).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '管理' }));
+    expect(onOpenAdmin).toHaveBeenCalledTimes(1);
+  });
+
+  it('断线时状态变红并显示「重连中」', () => {
+    render(<ConversationList {...listProps({ connected: false })} />);
+    expect(screen.getByText('○ 重连中')).toBeTruthy();
+  });
+
+  it('非管理员看不到管理入口', () => {
+    render(<ConversationList {...listProps({ isAdmin: false })} />);
+    expect(screen.queryByRole('button', { name: '管理' })).toBeNull();
+  });
+});
+
 describe('侧栏宽度', () => {
   it('持久化并夹在合理区间内', () => {
     saveSidebarWidth(360);

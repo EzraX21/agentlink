@@ -293,6 +293,82 @@ export async function run(ctx) {
     ok(true, '横幅在恢复后消失');
     await page.screenshot({ path: path.join(SHOT_DIR, '10-reconnected.png') });
 
+    section('9b. 右下角不再有按钮重叠');
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+    // 服务端刚重启过，重新 bootstrap 时可能被踢回登录页 —— 需要就再登一次
+    for (let i = 0; i < 40; i += 1) {
+      const hasLogin = (await page.locator('#username').count()) > 0;
+      const hasConv = (await page.locator('text=浏览器测试群').count()) > 0;
+      if (hasLogin || hasConv) break;
+      await page.waitForTimeout(500);
+    }
+    if ((await page.locator('#username').count()) > 0) {
+      await page.fill('#username', 'alice');
+      await page.fill('#password', 'browser-pass-123');
+      await page.click('button[type=submit]');
+    }
+    await page.waitForSelector('text=浏览器测试群', { timeout: 20_000 });
+    await page.click('text=浏览器测试群');
+    await page.waitForSelector('[data-message-id]', { timeout: 10_000 });
+
+    // 原 bug：全局按钮（连接状态/主题/管理）固定浮在 bottom-3 right-3，
+    // 而聊天区的「回到底部」浮在 bottom-3 right-4 —— 一往上翻就压在一起。
+    // 这里直接查"聊天区右下角有没有 fixed/absolute 元素压着"，与消息多少无关。
+    const layout = await page.evaluate(() => {
+      const chat = document.querySelector('.al-chat-bg');
+      if (chat === null) return null;
+      const chatRect = chat.getBoundingClientRect();
+      // 聊天区右下角 220×90 的方块
+      const zone = {
+        left: chatRect.right - 220,
+        right: chatRect.right,
+        top: chatRect.bottom - 90,
+        bottom: chatRect.bottom,
+      };
+      const hits = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const pos = getComputedStyle(el).position;
+        // 只查 fixed 的"全局浮层"：这正是当初压住按钮的东西（连接状态/主题/管理）。
+        // 气泡内部的绝对定位小按钮（撤回等）是正常的，不应算作重叠。
+        if (pos !== 'fixed') continue;
+        if (el.closest('[role="dialog"]') !== null) continue; // 弹窗不算
+        if (el.closest('[data-message-id]') !== null) continue; // 气泡内的按钮不算
+        if (el.classList.contains('al-chat-bg')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        const overlapX = Math.max(0, Math.min(r.right, zone.right) - Math.max(r.left, zone.left));
+        const overlapY = Math.max(0, Math.min(r.bottom, zone.bottom) - Math.max(r.top, zone.top));
+        if (overlapX * overlapY > 400) {
+          hits.push({
+            text: (el.textContent ?? '').trim().slice(0, 24),
+            area: Math.round(overlapX * overlapY),
+            pos,
+          });
+        }
+      }
+      const badge = [...document.querySelectorAll('span')].find((el) =>
+        (el.textContent ?? '').includes('已连接'),
+      );
+      return {
+        hits,
+        badgeX: badge === undefined ? null : badge.getBoundingClientRect().x,
+        chatLeft: chatRect.left,
+      };
+    });
+
+    ok(layout !== null, '拿到聊天区布局');
+    eq(
+      layout === null ? -1 : layout.hits.length,
+      0,
+      `聊天区右下角没有浮动元素压着${layout !== null && layout.hits.length > 0 ? `：${JSON.stringify(layout.hits)}` : ''}`,
+    );
+    ok(
+      layout !== null && layout.badgeX !== null && layout.badgeX < layout.chatLeft,
+      '连接状态在侧栏内（不再浮在聊天区右下角）',
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, '09-bottom-right.png') });
+
     section('10. 离线队列：断线时发的消息，恢复后自动送达且只有一条');
     // 此时服务端刚重启、页面已重连。先再断一次，模拟"用户没发现断线就发了消息"
     await ctx.kill9Server();
