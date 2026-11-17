@@ -21,9 +21,14 @@ export function MessageContextMenu({
   onRevoke,
   onCopy,
   onJumpToQuote,
+  canEdit,
+  onEdit,
 }: {
   target: ContextMenuTarget;
   canRevoke: boolean;
+  /** 是否是自己的消息（只有自己能编辑）。 */
+  canEdit?: boolean | undefined;
+  onEdit?: ((message: Message) => void) | undefined;
   onClose: () => void;
   onReply: (message: Message) => void;
   onRevoke: (messageId: string) => void;
@@ -92,6 +97,15 @@ export function MessageContextMenu({
           label="跳到被引用的消息"
           onClick={() => {
             onJumpToQuote(msg.reply_to as string);
+            onClose();
+          }}
+        />
+      )}
+      {!revoked && canEdit === true && onEdit !== undefined && (
+        <Item
+          label="编辑"
+          onClick={() => {
+            onEdit(msg);
             onClose();
           }}
         />

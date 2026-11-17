@@ -219,6 +219,7 @@ export function MessageBubble({
           <span className="al-muted ml-2 align-bottom text-[11px]">
             {formatTime(message.created_at)}
             {message.interrupted && ' · 已打断'}
+            {message.edited_at !== undefined && message.edited_at !== null && ' · 已编辑'}
             {pending === true && (
               <span title="尚未送达服务器，连接恢复后会自动重发" style={{ opacity: 0.8 }}>
                 {' '}

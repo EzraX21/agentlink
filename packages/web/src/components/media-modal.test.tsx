@@ -4,6 +4,7 @@ import { MediaViewer } from './MediaViewer.js';
 import { VideoBlockView } from './AttachmentBlocks.js';
 import { MessageBubble } from './MessageBubble.js';
 import { ReactionBar } from './ReactionBar.js';
+import { ChatWindow } from './ChatWindow.js';
 import type { Message } from '@agentlink/protocol';
 
 /**
@@ -334,5 +335,104 @@ describe('表情回应（协议扩展 §2）', () => {
   it('没有回应时只显示「＋」', () => {
     render(<ReactionBar reactions={undefined} selfId="u_a" onToggle={() => {}} />);
     expect(screen.getByRole('button', { name: '添加表情回应' })).toBeTruthy();
+  });
+});
+
+describe('编辑消息 UI（协议扩展 §3）', () => {
+  const msg: Message = {
+    id: 'm_edit',
+    conv_id: 'c_1',
+    seq: 3,
+    sender: { id: 'u_self', kind: 'human', display_name: '我' },
+    content: [{ type: 'text', text: '原始内容' }],
+    reply_to: null,
+    state: 'final',
+    interrupted: false,
+    created_at: 1,
+    revoked_at: null,
+    edited_at: null,
+  };
+
+  function props(overrides: Partial<React.ComponentProps<typeof ChatWindow>> = {}) {
+    return {
+      convId: 'c_1',
+      convTitle: '群',
+      announcement: '',
+      messages: [msg],
+      streaming: {},
+      selfId: 'u_self',
+      members: [],
+      onSend: vi.fn(),
+      onSendAttachment: vi.fn(async () => {}),
+      onJumpToMessage: vi.fn(),
+      onRevoke: vi.fn(),
+      onInterrupt: vi.fn(),
+      onLoadMore: vi.fn(),
+      hasMore: false,
+      loadingMore: false,
+      onToggleMembers: vi.fn(),
+      canRevokeOthers: false,
+      highlightMessageId: null,
+      ...overrides,
+    } satisfies React.ComponentProps<typeof ChatWindow>;
+  }
+
+  it('自己的消息右键菜单里有「编辑」', async () => {
+    render(<ChatWindow {...props({ onEdit: async () => {} })} />);
+    fireEvent.contextMenu(screen.getByRole('article'));
+    expect(await screen.findByRole('menuitem', { name: '编辑' })).toBeTruthy();
+  });
+
+  it('别人的消息没有「编辑」', async () => {
+    render(
+      <ChatWindow
+        {...props({
+          messages: [{ ...msg, sender: { id: 'u_other', kind: 'human', display_name: '别人' } }],
+          onEdit: async () => {},
+        })}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole('article'));
+    await screen.findByRole('menuitem', { name: '复制文本' });
+    expect(screen.queryByRole('menuitem', { name: '编辑' })).toBeNull();
+  });
+
+  it('点「编辑」后输入框回填原文，Enter 保存调用 onEdit', async () => {
+    const onEdit = vi.fn(async () => {});
+    render(<ChatWindow {...props({ onEdit })} />);
+
+    fireEvent.contextMenu(screen.getByRole('article'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑' }));
+
+    const ta = screen.getByLabelText('消息输入') as HTMLTextAreaElement;
+    expect(ta.value).toBe('原始内容');
+    expect(screen.getByText(/正在编辑这条消息/)).toBeTruthy();
+
+    fireEvent.change(ta, { target: { value: '改过的内容' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith('m_edit', '改过的内容'));
+    // 保存后退出编辑态
+    await waitFor(() => expect(screen.queryByText(/正在编辑这条消息/)).toBeNull());
+  });
+
+  it('Esc 取消编辑，不发请求', async () => {
+    const onEdit = vi.fn(async () => {});
+    render(<ChatWindow {...props({ onEdit })} />);
+    fireEvent.contextMenu(screen.getByRole('article'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑' }));
+
+    const ta = screen.getByLabelText('消息输入');
+    fireEvent.keyDown(ta, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText(/正在编辑这条消息/)).toBeNull());
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it('已编辑的消息显示「已编辑」标记', () => {
+    render(
+      <ChatWindow
+        {...props({ messages: [{ ...msg, edited_at: 1_700_000_000_000 }] })}
+      />,
+    );
+    expect(screen.getByText(/已编辑/)).toBeTruthy();
   });
 });

@@ -20,6 +20,7 @@ import {
   listMemberCandidates,
   revokeMessage,
   transaction,
+  updateMessageForEdit,
 } from '../db/queries.js';
 import { messages as messagesTable, type MessageRow, type UserRow } from '../db/schema.js';
 import { newMessageId, nowMs } from '../ids.js';
@@ -98,6 +99,7 @@ export function toMessage(row: MessageRow, sender: UserRow): Message {
     interrupted: row.interrupted === 1,
     created_at: row.createdAt,
     revoked_at: row.revokedAt,
+    edited_at: row.editedAt ?? null,
   };
 }
 
@@ -207,6 +209,7 @@ export function sendMessage(db: Db, input: SendMessageInput): SendMessageResult 
         interrupted: 0,
         createdAt,
         finalizedAt: createdAt,
+        editedAt: null,
       });
 
       // 分配 seq（与消息写入同一事务）
@@ -234,6 +237,7 @@ export function sendMessage(db: Db, input: SendMessageInput): SendMessageResult 
               finalizedAt: createdAt,
               revokedAt: null,
               revokedBy: null,
+              editedAt: null,
             },
             sender,
           ),
@@ -321,6 +325,44 @@ export function getMessage(
 }
 
 /** `message.revoke`：自己或 admin/owner（协议 §10）。返回事件 seq 供推送用。 */
+/**
+ * 编辑消息（协议扩展 §3）。
+ *
+ * 只允许**发送者本人**编辑终态、未撤回的消息；不做编辑历史（需求确认书 §5 排除）。
+ * 更新 `content_json` 与 `text_plain` 后，0002 的 UPDATE 触发器会先删旧词条再插新词，
+ * 全文索引自动重建 —— 旧关键词随即搜不到、新关键词能搜到（验收专门验这条）。
+ */
+export function editMessageById(
+  db: Db,
+  input: { convId: string; messageId: string; userId: string; content: Content },
+): Message {
+  requireMembership(db, input.convId, input.userId);
+  const row = findMessage(db, input.messageId);
+  if (!row || row.convId !== input.convId) {
+    throw new AgentLinkError('NOT_FOUND', '消息不存在', { what: 'message' });
+  }
+  if (row.senderId !== input.userId) {
+    throw new AgentLinkError('PERM_DENIED', '只能编辑自己的消息', { action: 'message.edit' });
+  }
+  if (row.state === 'revoked') {
+    throw new AgentLinkError('CONFLICT', '消息已撤回，不能编辑');
+  }
+  if (row.state === 'streaming') {
+    throw new AgentLinkError('CONFLICT', '消息还在生成中，不能编辑');
+  }
+
+  const textPlain = contentToPlainText(input.content);
+  const at = nowMs();
+  updateMessageForEdit(db, input.messageId, JSON.stringify(input.content), textPlain, at);
+
+  const updated = findMessage(db, input.messageId);
+  const sender = updated === undefined ? undefined : findUserById(db, updated.senderId);
+  if (updated === undefined || sender === undefined) {
+    throw new AgentLinkError('NOT_FOUND', '消息不存在', { what: 'message' });
+  }
+  return hydrateMessages(db, [updated])[0] ?? toMessage(updated, sender);
+}
+
 export function revokeMessageById(
   db: Db,
   input: { convId: string; messageId: string; userId: string },

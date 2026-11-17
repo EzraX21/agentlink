@@ -276,6 +276,16 @@ const ReactionReq = z.object({
   emoji: EmojiSchema,
 });
 
+/**
+ * 编辑消息（协议扩展 §3）。只能编辑自己的、终态、未撤回的消息。
+ * `content` 与 `message.send` 同一套块数组 schema（复用，不另写一份）。
+ */
+const MessageEditReq = z.object({
+  conv_id: ConvIdSchema,
+  message_id: MessageIdSchema,
+  content: ContentSchema,
+});
+
 const ReadSetReq = z.object({
   conv_id: ConvIdSchema,
   last_seq: z.number().int().min(0),
@@ -322,6 +332,7 @@ export const OPS = {
 
   'typing.send': { req: TypingSendReq, res: OkSchema },
   'read.set': { req: ReadSetReq, res: OkSchema },
+  'message.edit': { req: MessageEditReq, res: z.object({ message: MessageSchema }) },
   'reaction.add': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
   'reaction.remove': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
 } as const;

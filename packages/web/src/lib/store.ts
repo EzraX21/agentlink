@@ -321,6 +321,12 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
           store.removeMember(data.conv_id, data.user_id);
           break;
         }
+        case 'message.edit': {
+          const data = evt.data as { conv_id: string; message: Message };
+          if (!isRenderableMessage(data.message)) return;
+          store.replaceMessage(data.conv_id, data.message);
+          break;
+        }
         case 'message.reaction': {
           const data = evt.data as {
             conv_id: string;

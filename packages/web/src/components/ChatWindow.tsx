@@ -44,6 +44,8 @@ interface Props {
   typing?: Record<string, number>;
   /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
   onTyping?: () => void;
+  /** 编辑消息（协议扩展 §3）。 */
+  onEdit?: ((messageId: string, text: string) => Promise<void>) | undefined;
   /** 切换表情回应（协议扩展 §2）：自己点过就是取消，否则是添加。 */
   onToggleReaction?: ((messageId: string, emoji: string, mine: boolean) => void) | undefined;
   /** 当前是否在线：离线时不允许发附件（附件必须先上传成功才能排队）。 */
@@ -116,6 +118,7 @@ export function ChatWindow({
   typing,
   onTyping,
   onToggleReaction,
+  onEdit,
   online = true,
   onBack,
   onOpenGroupInfo,
@@ -123,6 +126,8 @@ export function ChatWindow({
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
+  // 编辑态：非 null 时输入框是"编辑已有消息"而不是"发新消息"
+  const [editing, setEditing] = useState<{ messageId: string } | null>(null);
   // 打字提示 3 秒过期，需要一个心跳来重算（否则过期后不重渲染就一直是"正在输入"）
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
@@ -353,6 +358,18 @@ export function ChatWindow({
   function submit(): void {
     const text = draft.trim();
     if (text === '') return;
+
+    // 编辑态：保存修改而不是发新消息（协议扩展 §3）
+    if (editing !== null && onEdit !== undefined) {
+      const target = editing.messageId;
+      setEditing(null);
+      setDraft('');
+      void onEdit(target, text).catch((err: unknown) => {
+        setToast(err instanceof Error ? err.message : '编辑失败');
+      });
+      return;
+    }
+
     onSend(text, replyTo?.id);
     setDraft('');
     if (draftKey !== '') clearDraft(draftKey);
@@ -700,6 +717,24 @@ export function ChatWindow({
           </div>
         )}
 
+        {editing !== null && (
+          <div
+            className="mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-[11px]"
+            style={{ background: 'var(--al-bg-hover)' }}
+          >
+            <span className="al-muted">正在编辑这条消息（Enter 保存，Esc 取消）</span>
+            <button
+              className="al-muted shrink-0"
+              onClick={() => {
+                setEditing(null);
+                setDraft('');
+              }}
+            >
+              取消
+            </button>
+          </div>
+        )}
+
         {uploadError !== null && (
           <div className="mb-1 flex items-center gap-2 text-[11px]" style={{ color: 'var(--al-danger)' }}>
             <span className="min-w-0 flex-1 truncate">{uploadError}</span>
@@ -764,6 +799,13 @@ export function ChatWindow({
               el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
             }}
             onKeyDown={(e) => {
+              // 编辑态下 Esc 取消（协议扩展 §3）
+              if (e.key === 'Escape' && editing !== null) {
+                e.preventDefault();
+                setEditing(null);
+                setDraft('');
+                return;
+              }
               if (e.key === 'Escape' && replyTo !== null) {
                 setReplyTo(null);
                 e.stopPropagation();
@@ -810,6 +852,20 @@ export function ChatWindow({
           canRevoke={
             menu.message.sender.id === selfId || canRevokeOthers
           }
+          canEdit={menu.message.sender.id === selfId && onEdit !== undefined}
+          {...(onEdit === undefined
+            ? {}
+            : {
+                onEdit: (m) => {
+                  const text = m.content
+                    .filter((b) => b.type === 'text')
+                    .map((b) => b.text)
+                    .join('\n');
+                  setEditing({ messageId: m.id });
+                  setDraft(text);
+                  textareaRef.current?.focus();
+                },
+              })}
           onClose={() => setMenu(null)}
           onReply={(m) => {
             setReplyTo(m);

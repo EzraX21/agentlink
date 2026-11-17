@@ -264,3 +264,47 @@ describe('表情回应事件（协议扩展 §2）', () => {
     ]);
   });
 });
+
+describe('编辑事件（协议扩展 §3）', () => {
+  it('message.edit 用新内容替换本地消息', () => {
+    const store = makeStore();
+    store.methods.addMessage({
+      id: 'm_e1',
+      conv_id: CONV,
+      seq: 2,
+      sender: { id: 'u_b', kind: 'human', display_name: '小明' },
+      content: [{ type: 'text', text: '旧内容' }],
+      reply_to: null,
+      state: 'final',
+      interrupted: false,
+      created_at: 1,
+      revoked_at: null,
+    });
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'message.edit',
+      seq: 9,
+      ts: 1,
+      data: {
+        conv_id: CONV,
+        message: {
+          id: 'm_e1',
+          conv_id: CONV,
+          seq: 2,
+          sender: { id: 'u_b', kind: 'human', display_name: '小明' },
+          content: [{ type: 'text', text: '新内容' }],
+          reply_to: null,
+          state: 'final',
+          interrupted: false,
+          created_at: 1,
+          revoked_at: null,
+          edited_at: 1_700_000_000_000,
+        },
+      },
+    } as never);
+    const m = (store.getState().messages[CONV] ?? [])[0];
+    expect(m?.content[0]).toEqual({ type: 'text', text: '新内容' });
+    expect(m?.edited_at).toBe(1_700_000_000_000);
+  });
+});

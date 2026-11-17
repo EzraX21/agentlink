@@ -24,6 +24,7 @@ import { registerM8Handlers } from './ops/m8.js';
 import { registerTypingHandlers } from './ops/typing.js';
 import { registerReadHandlers } from './ops/read.js';
 import { registerReactionHandlers } from './ops/reactions.js';
+import { registerEditHandlers } from './ops/edit.js';
 import { fromEnv as rateLimiterFromEnv } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
 import { loadHooks, NOOP_HOOKS } from './hooks.js';
@@ -121,6 +122,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   registerTypingHandlers(handlers);
   registerReadHandlers(handlers);
   registerReactionHandlers(handlers);
+  registerEditHandlers(handlers);
 
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
   const recovered = streams.recoverStaleOnBoot();

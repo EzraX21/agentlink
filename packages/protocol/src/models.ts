@@ -120,6 +120,11 @@ export const MessageSchema = z.object({
    * 撤回的消息一律为空数组。
    */
   reactions: z.array(ReactionSummarySchema).optional(),
+  /**
+   * 最后一次被编辑的时间（协议扩展 §3）。null / 缺省 = 从未编辑。
+   * 不做编辑历史（需求确认书 §5 排除），只标记"改过"。
+   */
+  edited_at: UnixMsSchema.nullable().optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 

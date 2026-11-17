@@ -147,6 +147,8 @@ export const messages = sqliteTable(
     createdAt: createdAt(),
     finalizedAt: integer('finalized_at'),
     revokedAt: integer('revoked_at'),
+    /** 被编辑的时间（协议扩展 §3）。null = 从未编辑。 */
+    editedAt: integer('edited_at'),
     revokedBy: text('revoked_by').references(() => users.id),
   },
   (t) => [

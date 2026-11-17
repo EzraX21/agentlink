@@ -732,3 +732,26 @@ SSE `content-type` 与帧形状、`?once=1`、非成员 403、缺 token 401、
 - `message_id` 用了 `m_does_not_exist`，但 ID 有 `m_<ULID>` 格式校验，
   于是拿到的是 `VALIDATION_FAILED` 而不是 `NOT_FOUND` —— 断言写错了预期。
   改用格式合法但不存在的 ULID。
+
+---
+
+## 2026-11-17 · 编辑消息：FTS 才是真考点
+
+**协议**：`message.edit {conv_id, message_id, content}`、事件 `message.edit`（带 seq）、
+`Message.edited_at`；迁移 `0006` 只加一列（**不做编辑历史**，需求确认书 §5 排除）。
+
+**最容易出错的地方不是"内容变了"，而是全文索引**：
+FTS5 的 `trg_messages_au` 要在同一条 UPDATE 里删旧词条、插新词条。
+如果这里错了，用户会**搜到不存在的内容**——比"编辑失败"难查得多。
+所以验收里专门断言三件事：旧关键词 0 命中、新关键词 1 命中、`messages_fts`
+里旧文本残留为 0。
+
+**编辑的服务端约束**：只能编辑自己的、`state='final'`、未撤回的消息；
+流式中的（内容还在变）和已撤回的一律 `CONFLICT`。
+
+**过程中的一个真实事故**：我用 `str.replace` 改 Drizzle schema 加 `editedAt`，
+本意只加到 `messages`，但 `replace` 默认替换**全部**匹配 —— 于是
+`refresh_tokens` 也被加了一列，而迁移里没有。表现是**注册接口 500**
+（"table refresh_tokens has no column named edited_at"），报错还落在
+`insertRefreshToken` 上，完全不像"我改了消息表"。
+教训：改 schema 这种多表同构的地方，替换后要**数一下命中次数**。

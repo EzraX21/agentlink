@@ -795,6 +795,16 @@ export function App(): React.JSX.Element {
           onJumpToMessage={jumpToMessage}
           pendingLocalIds={pendingIds}
           typing={typing}
+          onEdit={async (messageId, text) => {
+            const client = clientRef.current;
+            if (client === null || activeConvId === null) return;
+            const data = await client.call<{ message: Message }>('message.edit', {
+              conv_id: activeConvId,
+              message_id: messageId,
+              content: [{ type: 'text', text }],
+            });
+            replaceMessage(activeConvId, data.message);
+          }}
           onToggleReaction={(messageId, emoji, mine) => {
             const client = clientRef.current;
             if (client === null || activeConvId === null) return;

@@ -45,6 +45,8 @@ export const MILESTONES = [
   'ext-read',
   // 表情回应（协议扩展 §2）
   'ext-reaction',
+  // 编辑消息（协议扩展 §3）
+  'ext-edit',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

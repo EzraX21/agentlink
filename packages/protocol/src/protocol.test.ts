@@ -124,9 +124,10 @@ describe('op 注册表', () => {
       'read.set',
       'reaction.add',
       'reaction.remove',
+      'message.edit',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(28);
+    expect(OP_NAMES.length).toBe(29);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {
@@ -241,6 +242,8 @@ describe('事件注册表', () => {
         'read.update',
         // 协议扩展 §2：表情回应是**状态**，带 seq 可补发
         'message.reaction',
+        // 协议扩展 §3：编辑是状态，重连必须看到新内容
+        'message.edit',
       ].sort(),
     );
   });
@@ -257,6 +260,8 @@ describe('事件注册表', () => {
         'group.update',
         // 协议扩展 §2：回应是状态，必须能补发
         'message.reaction',
+        // 协议扩展 §3：编辑是状态，重连必须看到新内容
+        'message.edit',
       ].sort(),
     );
     expect(EVENTS.typing.seq).toBe(false);

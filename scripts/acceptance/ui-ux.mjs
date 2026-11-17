@@ -345,7 +345,7 @@ export async function run(ctx) {
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   // 已批准并落地的扩展不在这里（typing.send / read.set 已实现，见 B1h 与 ext-read）。
   // 这条清单要跟着实现进展更新 —— 之前忘了改，导致"已经加了还断言没加"。
-  for (const notAnOp of ['message.edit', 'message.pin', 'message.forward']) {
+  for (const notAnOp of ['message.pin', 'message.forward']) {
     ok(!protoOps.includes(notAnOp), `${notAnOp} 尚未加入协议（等下一批扩展）`);
   }
 
@@ -358,7 +358,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 127, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥127）`);
+  gte(Number(passed?.[1] ?? 0), 133, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥133）`);
 
   a.close();
   b.close();

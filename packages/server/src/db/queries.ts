@@ -527,6 +527,26 @@ export function updateMessageContent(
     .run();
 }
 
+/**
+ * 编辑已终结的消息内容（协议扩展 §3）。
+ *
+ * 与 `updateMessageContent` 的区别：那个只改 streaming 的行（流式增量用）；
+ * 这个改 final 的行，并打上 edited_at。分开写是为了让两处的 WHERE 条件一目了然 ——
+ * 混用一个函数很容易把"编辑"误用到"流式刷新"上。
+ */
+export function updateMessageForEdit(
+  db: Db,
+  id: string,
+  contentJson: string,
+  textPlain: string,
+  editedAt: number,
+): void {
+  db.update(messages)
+    .set({ contentJson, textPlain, editedAt })
+    .where(and(eq(messages.id, id), eq(messages.state, 'final')))
+    .run();
+}
+
 export function finalizeMessage(
   db: Db,
   id: string,

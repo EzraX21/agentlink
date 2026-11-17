@@ -130,6 +130,7 @@ export class StreamRegistry {
       state: 'streaming',
       interrupted: 0,
       createdAt,
+      editedAt: null,
       finalizedAt: null,
     });
 
