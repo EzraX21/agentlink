@@ -23,12 +23,17 @@ export function MessageContextMenu({
   onJumpToQuote,
   canEdit,
   onEdit,
+  canPin,
+  onPin,
 }: {
   target: ContextMenuTarget;
   canRevoke: boolean;
   /** 是否是自己的消息（只有自己能编辑）。 */
   canEdit?: boolean | undefined;
   onEdit?: ((message: Message) => void) | undefined;
+  /** 能否置顶（owner/admin）。 */
+  canPin?: boolean | undefined;
+  onPin?: ((message: Message) => void) | undefined;
   onClose: () => void;
   onReply: (message: Message) => void;
   onRevoke: (messageId: string) => void;
@@ -106,6 +111,15 @@ export function MessageContextMenu({
           label="编辑"
           onClick={() => {
             onEdit(msg);
+            onClose();
+          }}
+        />
+      )}
+      {!revoked && canPin === true && onPin !== undefined && (
+        <Item
+          label="置顶"
+          onClick={() => {
+            onPin(msg);
             onClose();
           }}
         />

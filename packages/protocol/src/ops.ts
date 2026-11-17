@@ -286,6 +286,13 @@ const MessageEditReq = z.object({
   content: ContentSchema,
 });
 
+/** 置顶消息（协议扩展 §4）：pin 需要 message_id，unpin 只需要 conv_id。 */
+const MessagePinReq = z.object({
+  conv_id: ConvIdSchema,
+  message_id: MessageIdSchema,
+});
+const MessageUnpinReq = z.object({ conv_id: ConvIdSchema });
+
 const ReadSetReq = z.object({
   conv_id: ConvIdSchema,
   last_seq: z.number().int().min(0),
@@ -333,6 +340,8 @@ export const OPS = {
   'typing.send': { req: TypingSendReq, res: OkSchema },
   'read.set': { req: ReadSetReq, res: OkSchema },
   'message.edit': { req: MessageEditReq, res: z.object({ message: MessageSchema }) },
+  'message.pin': { req: MessagePinReq, res: z.object({ conv: ConversationSchema }) },
+  'message.unpin': { req: MessageUnpinReq, res: z.object({ conv: ConversationSchema }) },
   'reaction.add': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
   'reaction.remove': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
 } as const;

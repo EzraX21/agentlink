@@ -418,12 +418,14 @@ export function listConversationsForUser(
     kind: 'group' | 'dm';
     title: string;
     announcement: string;
+    pinned_message_id: string | null;
     created_by: string;
     created_at: number;
     member_count: number;
     last_seq: number;
   }>(sql`
-    SELECT c.id, c.tenant_id, c.kind, c.title, c.announcement, c.created_by, c.created_at,
+    SELECT c.id, c.tenant_id, c.kind, c.title, c.announcement, c.pinned_message_id,
+           c.created_by, c.created_at,
            (SELECT count(*) FROM memberships mm WHERE mm.conv_id = c.id) AS member_count,
            COALESCE((SELECT max(m.seq) FROM messages m WHERE m.conv_id = c.id), 0) AS last_seq
     FROM conversations c
@@ -441,6 +443,7 @@ export function listConversationsForUser(
       kind: r.kind,
       title: r.title,
       announcement: r.announcement,
+      pinnedMessageId: r.pinned_message_id ?? null,
       createdBy: r.created_by,
       createdAt: r.created_at,
       memberCount: r.member_count,
@@ -494,6 +497,11 @@ export function listMemberUserIds(db: Db, convId: string): string[] {
 // ---------------------------------------------------------------------------
 // messages
 // ---------------------------------------------------------------------------
+
+/** 置顶/取消置顶（协议扩展 §4）。`messageId = null` 表示取消。 */
+export function setPinnedMessage(db: Db, convId: string, messageId: string | null): void {
+  db.update(conversations).set({ pinnedMessageId: messageId }).where(eq(conversations.id, convId)).run();
+}
 
 export function insertMessage(db: Db, row: typeof messages.$inferInsert): void {
   db.insert(messages).values(row).run();

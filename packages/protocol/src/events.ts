@@ -72,6 +72,14 @@ const PokeData = z.object({
   to_user_id: UserIdSchema,
 });
 
+/** 置顶变化（协议扩展 §4）。带 seq：置顶是会话状态，重连要能看到横幅。 */
+export const MessagePinData = z.object({
+  conv_id: ConvIdSchema,
+  /** null = 取消置顶。 */
+  message_id: MessageIdSchema.nullable(),
+  by: UserIdSchema,
+});
+
 /** 消息被编辑（协议扩展 §3）。带 seq：编辑是状态，断线重连要能补齐。 */
 export const MessageEditData = z.object({
   conv_id: ConvIdSchema,
@@ -110,6 +118,7 @@ export const EVENTS = {
   'read.update': { data: ReadUpdateData, seq: false },
   'message.reaction': { data: MessageReactionData, seq: true },
   'message.edit': { data: MessageEditData, seq: true },
+  'message.pin': { data: MessagePinData, seq: true },
   poke: { data: PokeData, seq: false },
 } as const;
 

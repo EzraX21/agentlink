@@ -44,6 +44,14 @@ interface Props {
   typing?: Record<string, number>;
   /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
   onTyping?: () => void;
+  /** 能否置顶消息（owner/admin，协议扩展 §4）。 */
+  canPinMessages?: boolean;
+  /** 置顶某条消息。 */
+  onPin?: ((messageId: string) => void) | undefined;
+  /** 置顶消息 id（协议扩展 §4）。null = 没置顶。 */
+  pinnedMessageId?: string | null;
+  /** 取消置顶（仅 owner/admin 会传）。 */
+  onUnpin?: (() => void) | undefined;
   /** 编辑消息（协议扩展 §3）。 */
   onEdit?: ((messageId: string, text: string) => Promise<void>) | undefined;
   /** 切换表情回应（协议扩展 §2）：自己点过就是取消，否则是添加。 */
@@ -119,6 +127,10 @@ export function ChatWindow({
   onTyping,
   onToggleReaction,
   onEdit,
+  pinnedMessageId = null,
+  onUnpin,
+  canPinMessages = false,
+  onPin,
   online = true,
   onBack,
   onOpenGroupInfo,
@@ -522,6 +534,46 @@ export function ChatWindow({
         </div>
       )}
 
+      {/* 置顶横幅（协议扩展 §4）：点它跳到被置顶的消息，owner/admin 可取消 */}
+      {pinnedMessageId !== null && pinnedMessageId !== undefined && (
+        <div
+          className="flex shrink-0 items-center gap-2 px-4 py-1.5 text-[11px]"
+          style={{ background: 'var(--al-bg-hover)', borderBottom: '1px solid var(--al-border)' }}
+        >
+          <span aria-hidden>📌</span>
+          <button
+            className="min-w-0 flex-1 truncate text-left"
+            onClick={() => {
+              const idx = rows.findIndex(
+                (r) => r.kind === 'msg' && r.message.id === pinnedMessageId,
+              );
+              if (idx >= 0) virtualizer.scrollToIndex(idx, { align: 'center' });
+            }}
+            title="跳到置顶消息"
+          >
+            <span className="al-muted">置顶：</span>
+            {(() => {
+              const pinned = messages.find((m) => m.id === pinnedMessageId);
+              if (pinned === undefined) return '（消息已删除）';
+              const text = pinned.content
+                .map((b) => (b.type === 'text' ? b.text : b.type === 'image' ? '[图片]' : '[文件]'))
+                .join(' ');
+              return `${pinned.sender.display_name}：${text}`;
+            })()}
+          </button>
+          {onUnpin !== undefined && (
+            <button
+              className="al-muted shrink-0"
+              onClick={onUnpin}
+              title="取消置顶"
+              aria-label="取消置顶"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       {announcement !== '' && showAnnouncement && (
         <div
           className="flex items-start gap-2 px-4 py-1.5 text-[12px]"
@@ -853,6 +905,8 @@ export function ChatWindow({
             menu.message.sender.id === selfId || canRevokeOthers
           }
           canEdit={menu.message.sender.id === selfId && onEdit !== undefined}
+          canPin={canPinMessages}
+          {...(onPin === undefined ? {} : { onPin: (m) => onPin(m.id) })}
           {...(onEdit === undefined
             ? {}
             : {

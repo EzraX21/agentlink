@@ -42,6 +42,7 @@ export function toConversation(row: ConversationRow, memberCount?: number): Conv
     announcement: row.announcement,
     created_by: row.createdBy,
     created_at: row.createdAt,
+    pinned_message_id: row.pinnedMessageId ?? null,
   };
   if (memberCount !== undefined) conv.member_count = memberCount;
   return conv;

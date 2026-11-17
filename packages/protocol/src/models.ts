@@ -136,6 +136,11 @@ export const ConversationSchema = z.object({
   created_by: UserIdSchema,
   created_at: UnixMsSchema,
   member_count: z.number().int().nonnegative().optional(),
+  /**
+   * 置顶消息 id（协议扩展 §4）。null / 缺省 = 没有置顶。
+   * v1 只支持单条置顶；被置顶的消息可能已被撤回，客户端要按 id 找不到就忽略。
+   */
+  pinned_message_id: z.string().nullable().optional(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
 

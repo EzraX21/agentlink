@@ -308,3 +308,36 @@ describe('编辑事件（协议扩展 §3）', () => {
     expect(m?.edited_at).toBe(1_700_000_000_000);
   });
 });
+
+describe('置顶事件（协议扩展 §4）', () => {
+  it('message.pin 更新会话的 pinned_message_id，取消时置空', () => {
+    const store = makeStore();
+    store.methods.upsertConv({
+      id: CONV,
+      kind: 'group',
+      title: '群',
+      announcement: '',
+      created_by: 'u_a',
+      created_at: 1,
+    });
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'message.pin',
+      seq: 3,
+      ts: 1,
+      data: { conv_id: CONV, message_id: 'm_x', by: 'u_a' },
+    } as never);
+    expect(store.getState().convs[0]?.pinned_message_id).toBe('m_x');
+
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'message.pin',
+      seq: 4,
+      ts: 1,
+      data: { conv_id: CONV, message_id: null, by: 'u_a' },
+    } as never);
+    expect(store.getState().convs[0]?.pinned_message_id).toBeNull();
+  });
+});

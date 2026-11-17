@@ -70,6 +70,8 @@ export const conversations = sqliteTable(
     kind: text('kind', { enum: ['group', 'dm'] }).notNull(),
     title: text('title').notNull().default(''),
     announcement: text('announcement').notNull().default(''),
+    /** 置顶消息 id（协议扩展 §4）。null = 没有置顶。 */
+    pinnedMessageId: text('pinned_message_id'),
     createdBy: text('created_by')
       .notNull()
       .references(() => users.id),

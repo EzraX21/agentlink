@@ -17,6 +17,8 @@ export type Action =
   | 'member.kick'
   | 'member.mute'
   | 'group.update'
+  /** 置顶消息（协议扩展 §4）：与群名/公告同档，owner/admin 才能改。 */
+  | 'message.pin'
   | 'member.role.set'
   | 'stream.begin';
 
@@ -28,6 +30,7 @@ const MATRIX: Record<Action, readonly ('owner' | 'admin' | 'member')[]> = {
   'member.kick': ['owner', 'admin'],
   'member.mute': ['owner', 'admin'],
   'group.update': ['owner', 'admin'],
+  'message.pin': ['owner', 'admin'],
   'member.role.set': ['owner'],
   'stream.begin': ['owner', 'admin', 'member'],
 };

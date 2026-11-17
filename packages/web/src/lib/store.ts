@@ -321,6 +321,14 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
           store.removeMember(data.conv_id, data.user_id);
           break;
         }
+        case 'message.pin': {
+          const data = evt.data as { conv_id: string; message_id: string | null };
+          if (typeof data.conv_id !== 'string') return;
+          const conv = get().convs.find((c) => c.id === data.conv_id);
+          if (conv === undefined) return;
+          get().upsertConv({ ...conv, pinned_message_id: data.message_id });
+          break;
+        }
         case 'message.edit': {
           const data = evt.data as { conv_id: string; message: Message };
           if (!isRenderableMessage(data.message)) return;

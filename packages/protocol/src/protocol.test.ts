@@ -125,9 +125,11 @@ describe('op 注册表', () => {
       'reaction.add',
       'reaction.remove',
       'message.edit',
+      'message.pin',
+      'message.unpin',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(29);
+    expect(OP_NAMES.length).toBe(31);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {
@@ -244,6 +246,8 @@ describe('事件注册表', () => {
         'message.reaction',
         // 协议扩展 §3：编辑是状态，重连必须看到新内容
         'message.edit',
+        // 协议扩展 §4：置顶是会话状态，横幅要能恢复
+        'message.pin',
       ].sort(),
     );
   });
@@ -262,6 +266,8 @@ describe('事件注册表', () => {
         'message.reaction',
         // 协议扩展 §3：编辑是状态，重连必须看到新内容
         'message.edit',
+        // 协议扩展 §4：置顶是会话状态，横幅要能恢复
+        'message.pin',
       ].sort(),
     );
     expect(EVENTS.typing.seq).toBe(false);

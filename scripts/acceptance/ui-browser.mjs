@@ -179,26 +179,43 @@ export async function run(ctx) {
     await page.screenshot({ path: path.join(SHOT_DIR, '03-sent.png') });
 
     section('4. @agent 流式回复：文本在真实 DOM 里逐字增长');
+    // 用 MutationObserver 在页面内记录**每一次**变化，而不是在外面按 120ms 轮询。
+    // 轮询会漏掉间隔小于采样周期的中间态 —— echo-agent 回得快时只能看到最终长度，
+    // 断言就会误报"没有增长"。
+    await page.evaluate(() => {
+      const w = window;
+      w.__streamLengths = [];
+      const record = () => {
+        for (const el of document.querySelectorAll('.al-streaming')) {
+          const len = (el.textContent ?? '').length;
+          if (len > 0 && w.__streamLengths[w.__streamLengths.length - 1] !== len) {
+            w.__streamLengths.push(len);
+          }
+        }
+      };
+      const obs = new MutationObserver(record);
+      obs.observe(document.body, { subtree: true, childList: true, characterData: true });
+      w.__streamObserver = obs;
+    });
+
     await page.fill('textarea', '@echo 你好');
     await page.keyboard.press('Enter');
-    // 等到出现一个流式气泡（有 al-streaming 类）
     await page.waitForSelector('.al-streaming', { timeout: 15_000 });
-    const lengths = [];
-    for (let i = 0; i < 12; i += 1) {
-      const len = await page.evaluate(() => {
-        const el = document.querySelector('.al-streaming');
-        return el === null ? -1 : (el.textContent ?? '').length;
-      });
-      if (len >= 0) lengths.push(len);
-      await page.waitForTimeout(120);
-      // 流式结束后光标消失，收尾
+    // 等流式结束（光标消失）或超时
+    for (let i = 0; i < 60; i += 1) {
       if ((await page.locator('.al-streaming').count()) === 0) break;
+      await page.waitForTimeout(100);
     }
-    const distinct = [...new Set(lengths)];
-    gte(distinct.length, 2, `观察到 ${distinct.length} 个不同长度（${lengths.join(',')}）`);
+    const observed = await page.evaluate(() => {
+      window.__streamObserver?.disconnect();
+      return window.__streamLengths ?? [];
+    });
+    const distinct = [...new Set(observed)];
+    gte(distinct.length, 2, `观察到 ${distinct.length} 个不同长度（${observed.join(',')}）`);
+    // 长度必须单调不减：流式只追加，不该回退
+    const monotonic = observed.every((v, i) => i === 0 || v >= observed[i - 1]);
+    ok(monotonic, '流式长度单调不减（只追加，不回退）');
     await page.screenshot({ path: path.join(SHOT_DIR, '04-streaming.png') });
-    // 等流式结束
-    await page.waitForTimeout(2500);
     const finalHasEcho = await page.locator('[data-message-id]', { hasText: '你说的是' }).count();
     gte(finalHasEcho, 1, '最终把完整回复落在气泡里');
 

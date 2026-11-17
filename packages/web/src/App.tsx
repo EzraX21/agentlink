@@ -795,6 +795,33 @@ export function App(): React.JSX.Element {
           onJumpToMessage={jumpToMessage}
           pendingLocalIds={pendingIds}
           typing={typing}
+          {...(activeConv.pinned_message_id === undefined
+            ? {}
+            : { pinnedMessageId: activeConv.pinned_message_id })}
+          canPinMessages={myRole === 'owner' || myRole === 'admin'}
+          onPin={(messageId) => {
+            const client = clientRef.current;
+            if (client === null || activeConvId === null) return;
+            void client
+              .call<{ conv: Conversation }>('message.pin', {
+                conv_id: activeConvId,
+                message_id: messageId,
+              })
+              .then((data) => upsertConv(data.conv))
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : '置顶失败');
+              });
+          }}
+          onUnpin={() => {
+            const client = clientRef.current;
+            if (client === null || activeConvId === null) return;
+            void client
+              .call<{ conv: Conversation }>('message.unpin', { conv_id: activeConvId })
+              .then((data) => upsertConv(data.conv))
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : '取消置顶失败');
+              });
+          }}
           onEdit={async (messageId, text) => {
             const client = clientRef.current;
             if (client === null || activeConvId === null) return;

@@ -50,6 +50,13 @@
       "when": 1794909000000,
       "tag": "0006_message_edit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794911000000,
+      "tag": "0007_pin",
+      "breakpoints": true
     }
   ]
 }

@@ -436,3 +436,66 @@ describe('编辑消息 UI（协议扩展 §3）', () => {
     expect(screen.getByText(/已编辑/)).toBeTruthy();
   });
 });
+
+describe('置顶横幅（协议扩展 §4）', () => {
+  const pinnedMsg: Message = {
+    id: 'm_pin',
+    conv_id: 'c_1',
+    seq: 2,
+    sender: { id: 'u_other', kind: 'human', display_name: '小明' },
+    content: [{ type: 'text', text: '重要通知' }],
+    reply_to: null,
+    state: 'final',
+    interrupted: false,
+    created_at: 1,
+    revoked_at: null,
+  };
+
+  function props(overrides: Partial<React.ComponentProps<typeof ChatWindow>> = {}) {
+    return {
+      convId: 'c_1',
+      convTitle: '群',
+      announcement: '',
+      messages: [pinnedMsg],
+      streaming: {},
+      selfId: 'u_self',
+      members: [],
+      onSend: vi.fn(),
+      onSendAttachment: vi.fn(async () => {}),
+      onJumpToMessage: vi.fn(),
+      onRevoke: vi.fn(),
+      onInterrupt: vi.fn(),
+      onLoadMore: vi.fn(),
+      hasMore: false,
+      loadingMore: false,
+      onToggleMembers: vi.fn(),
+      canRevokeOthers: false,
+      highlightMessageId: null,
+      ...overrides,
+    } satisfies React.ComponentProps<typeof ChatWindow>;
+  }
+
+  it('有置顶时显示横幅与发送者 + 内容摘要', () => {
+    render(<ChatWindow {...props({ pinnedMessageId: 'm_pin' })} />);
+    expect(screen.getByText(/置顶：/)).toBeTruthy();
+    expect(screen.getByText(/小明：重要通知/)).toBeTruthy();
+  });
+
+  it('没有置顶时不显示横幅', () => {
+    render(<ChatWindow {...props({ pinnedMessageId: null })} />);
+    expect(screen.queryByText(/置顶：/)).toBeNull();
+  });
+
+  it('置顶的消息已被删除时横幅给出说明', () => {
+    render(<ChatWindow {...props({ pinnedMessageId: 'm_gone' })} />);
+    expect(screen.getByText(/消息已删除/)).toBeTruthy();
+  });
+
+  it('只有传了 onUnpin 才显示取消按钮', () => {
+    const { unmount } = render(<ChatWindow {...props({ pinnedMessageId: 'm_pin' })} />);
+    expect(screen.queryByLabelText('取消置顶')).toBeNull();
+    unmount();
+    render(<ChatWindow {...props({ pinnedMessageId: 'm_pin', onUnpin: () => {} })} />);
+    expect(screen.getByLabelText('取消置顶')).toBeTruthy();
+  });
+});
