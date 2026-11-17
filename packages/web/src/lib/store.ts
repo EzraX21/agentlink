@@ -45,6 +45,7 @@ export interface ChatState {
   prependMessages(convId: string, messages: Message[]): void;
   addMessage(msg: Message): void;
   replaceMessage(convId: string, msg: Message): void;
+  removeMessage(convId: string, messageId: string): void;
   markRevoked(convId: string, messageId: string): void;
   applyDelta(convId: string, messageId: string, rev: number, delta: string): void;
   setStreamingText(convId: string, messageId: string, text: string, rev: number): void;
@@ -131,6 +132,13 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         ? existing.map((m) => (m.id === msg.id ? msg : m))
         : [...existing, msg];
       set({ messages: { ...get().messages, [convId]: sortBySeq(next) } });
+    },
+    removeMessage: (convId, messageId) => {
+      const existing = get().messages[convId] ?? [];
+      const next = existing.filter((m) => m.id !== messageId);
+      if (next.length !== existing.length) {
+        set({ messages: { ...get().messages, [convId]: next } });
+      }
     },
     markRevoked: (convId, messageId) => {
       const existing = get().messages[convId] ?? [];

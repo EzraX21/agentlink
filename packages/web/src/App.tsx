@@ -10,6 +10,7 @@ import { MemberPanel } from './components/MemberPanel.js';
 import { ProtocolClient, clearTokens, loadTokens } from './lib/client.js';
 import { useChat } from './lib/useChat.js';
 import { uuid } from './lib/format.js';
+import { sendText } from './lib/sendText.js';
 
 const PAGE_SIZE = 50;
 
@@ -42,6 +43,7 @@ export function App(): React.JSX.Element {
     setMessages,
     prependMessages,
     replaceMessage,
+    removeMessage,
     handleEvent,
     streaming,
     setStreamingText,
@@ -212,43 +214,20 @@ export function App(): React.JSX.Element {
     (text: string) => {
       const client = clientRef.current;
       if (client === null || activeConvId === null) return;
-      const content = [{ type: 'text' as const, text }];
-      // 乐观插入：先本地显示，服务端回 res 后换成真实消息
-      const optimistic: Message = {
-        id: `local_${uuid()}`,
-        conv_id: activeConvId,
-        seq: null,
-        sender: self ?? { id: '', kind: 'human', display_name: '我' },
-        content,
-        reply_to: null,
-        state: 'final',
-        interrupted: false,
-        created_at: Date.now(),
-        revoked_at: null,
-      };
-      replaceMessage(activeConvId, optimistic);
-      void (async () => {
-        try {
-          const res = await client.call<{ message_id: string; seq: number; created_at: number }>(
-            'message.send',
-            {
-              conv_id: activeConvId,
-              client_msg_id: uuid(),
-              content,
-            },
-          );
-          replaceMessage(activeConvId, {
-            ...optimistic,
-            id: res.message_id,
-            seq: res.seq,
-            created_at: res.created_at,
-          });
-        } catch (err) {
-          setError(err instanceof Error ? err.message : '发送失败');
-        }
-      })();
+      // 乐观插入 + 与服务端推送收敛，细节见 lib/sendText.ts 的注释
+      void sendText(
+        {
+          call: (op, data) => client.call(op, data),
+          replaceMessage,
+          removeMessage,
+          setError,
+          uuid,
+          now: () => Date.now(),
+        },
+        { convId: activeConvId, self, text },
+      );
     },
-    [activeConvId, self, replaceMessage, setError],
+    [activeConvId, self, replaceMessage, removeMessage, setError],
   );
 
   const revoke = useCallback(

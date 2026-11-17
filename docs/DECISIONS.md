@@ -273,3 +273,38 @@ END;
 **验收覆盖**：`scripts/acceptance/ui-admin.mjs`（91 项断言）覆盖准入、账号增删启停、
 Agent 建/轮换/停用、跨群拉人与移除、审计筛选，以及页面路由与拒绝态；
 `packages/web/src/pages/AdminPage.test.tsx`（4 项）覆盖渲染。
+
+---
+
+## 2026-11-17 · "发一条消息显示两次"：乐观插入与服务端回推撞车
+
+**现象**（用户实测报的）：发一条消息，界面上出现两次；刷新后变回一条。
+
+**根因**：两条到达路径叠在一起。
+
+1. 客户端为了即时反馈，先插入一条**乐观消息**，id 是 `local_<uuid>`；
+2. 服务端把 `message.new` **也推给发送者自己**（`hub.publish` 不排除发送者），
+   客户端按 id 去重时插入了真实消息 `m_<ULID>`；
+3. 随后 `message.send` 的响应到达，代码把"id 等于真实 id 的那条"替换掉 ——
+   可它替换的是第 2 步插进来的那条，第 1 步的 `local_` 占位**没人删**。
+
+于是列表里同时有 `local_xxx` 与 `m_xxx`，两条 id 不同，按 id 去重去不掉。
+刷新时 `history.fetch` 只返回服务端那条，所以"刷新就好了"——这正是问题的指纹。
+
+**为什么不能只靠"服务端不回推给发送者"解决**：多标签页 / 多设备需要它。
+你在手机上发的消息，网页端也得通过 `message.new` 出现。所以回推是对的，
+要在客户端把它们收敛。
+
+**选择**：把发送逻辑抽成 `packages/web/src/lib/sendText.ts`，顺序固定为
+"先 `removeMessage(localId)`，再 `replaceMessage(权威消息)`"。两种到达顺序都收敛到一条：
+
+- **事件先到**：列表已有 `m_xxx` → 删掉 `local_xxx`，`replaceMessage` 按 id 幂等；
+- **响应先到**：列表只有 `local_xxx` → 删掉它，放入 `m_xxx`，随后事件再按 id 幂等。
+
+**为什么抽成独立模块**：这段逻辑之前在 `App.tsx` 的 `useCallback` 里，没法单测。
+抽出来后 `sendText.test.ts` 覆盖 6 个场景，其中两个直接复现两种到达顺序。
+**已验证它能抓住原 bug**：临时把 `removeMessage` 去掉后，这两个用例立刻失败并报
+`expected [...] to have a length of 1 but got 2`。
+
+**没改协议、没改服务端**：协议 §5.3 的 `message.send` 返回值与 §6 的 `message.new`
+语义都没动，纯客户端去重。
