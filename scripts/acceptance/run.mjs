@@ -49,6 +49,8 @@ export const MILESTONES = [
   'ext-edit',
   // 置顶消息（协议扩展 §4）
   'ext-pin',
+  // 转发（协议扩展 §6）
+  'ext-forward',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

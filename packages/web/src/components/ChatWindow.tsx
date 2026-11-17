@@ -44,6 +44,8 @@ interface Props {
   typing?: Record<string, number>;
   /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
   onTyping?: () => void;
+  /** 转发某条消息（协议扩展 §6）。 */
+  onForward?: ((messageId: string) => void) | undefined;
   /** 能否置顶消息（owner/admin，协议扩展 §4）。 */
   canPinMessages?: boolean;
   /** 置顶某条消息。 */
@@ -131,6 +133,7 @@ export function ChatWindow({
   onUnpin,
   canPinMessages = false,
   onPin,
+  onForward,
   online = true,
   onBack,
   onOpenGroupInfo,
@@ -907,6 +910,7 @@ export function ChatWindow({
           canEdit={menu.message.sender.id === selfId && onEdit !== undefined}
           canPin={canPinMessages}
           {...(onPin === undefined ? {} : { onPin: (m) => onPin(m.id) })}
+          {...(onForward === undefined ? {} : { onForward: (m) => onForward(m.id) })}
           {...(onEdit === undefined
             ? {}
             : {

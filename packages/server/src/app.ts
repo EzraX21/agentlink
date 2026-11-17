@@ -26,6 +26,7 @@ import { registerReadHandlers } from './ops/read.js';
 import { registerReactionHandlers } from './ops/reactions.js';
 import { registerEditHandlers } from './ops/edit.js';
 import { registerPinHandlers } from './ops/pin.js';
+import { registerForwardHandlers } from './ops/forward.js';
 import { fromEnv as rateLimiterFromEnv } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
 import { loadHooks, NOOP_HOOKS } from './hooks.js';
@@ -125,6 +126,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   registerReactionHandlers(handlers);
   registerEditHandlers(handlers);
   registerPinHandlers(handlers);
+  registerForwardHandlers(handlers);
 
   // 启动时清理残留的 streaming 消息（数据模型 §6.4）
   const recovered = streams.recoverStaleOnBoot();

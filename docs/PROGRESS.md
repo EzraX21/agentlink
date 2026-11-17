@@ -35,7 +35,9 @@
 | **扩展 1**：`typing.send`（M6 验收第 2 条解锁） | ✅ | 2026-11-17 | `run.mjs ext-typing` | 18 + `ui-browser` 双窗 |
 | **扩展 2**：`read.set` 已读回执（✓/✓✓） | ✅ | 2026-11-17 | `run.mjs ext-read` | 28 + 120 单测 |
 | **扩展 3**：`reaction.add/remove` 表情回应 | ✅ | 2026-11-17 | `run.mjs ext-reaction` | 30 + 127 单测 |
-| 扩展待做：编辑/置顶/转发 | ⏸ | — | `docs/PROPOSAL-protocol-ext.md` | 方案已就绪 |
+| **扩展 4**：`message.edit` 编辑消息 | ✅ | 2026-11-17 | `run.mjs ext-edit` | 29 |
+| **扩展 5**：`message.pin/unpin` 置顶 | ✅ | 2026-11-17 | `run.mjs ext-pin` | 22 |
+| **扩展 6**：`message.forward` 转发 | ✅ | 2026-11-17 | `run.mjs ext-forward` | 24 |
 | **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
 | 外部 agent 流式回复（HTTP）+ Last-Event-ID | ✅ | 2026-11-17 | `run.mjs agent-http` | 51 |
 | 外部 agent 发附件（上传 + 便捷拼块） | ✅ | 2026-11-17 | `run.mjs agent-http` | 67 |

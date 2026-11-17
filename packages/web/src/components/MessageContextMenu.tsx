@@ -25,6 +25,7 @@ export function MessageContextMenu({
   onEdit,
   canPin,
   onPin,
+  onForward,
 }: {
   target: ContextMenuTarget;
   canRevoke: boolean;
@@ -34,6 +35,8 @@ export function MessageContextMenu({
   /** 能否置顶（owner/admin）。 */
   canPin?: boolean | undefined;
   onPin?: ((message: Message) => void) | undefined;
+  /** 转发（协议扩展 §6）。 */
+  onForward?: ((message: Message) => void) | undefined;
   onClose: () => void;
   onReply: (message: Message) => void;
   onRevoke: (messageId: string) => void;
@@ -111,6 +114,15 @@ export function MessageContextMenu({
           label="编辑"
           onClick={() => {
             onEdit(msg);
+            onClose();
+          }}
+        />
+      )}
+      {!revoked && onForward !== undefined && (
+        <Item
+          label="转发"
+          onClick={() => {
+            onForward(msg);
             onClose();
           }}
         />

@@ -127,9 +127,10 @@ describe('op 注册表', () => {
       'message.edit',
       'message.pin',
       'message.unpin',
+      'message.forward',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(31);
+    expect(OP_NAMES.length).toBe(32);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {

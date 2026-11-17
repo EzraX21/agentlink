@@ -286,6 +286,18 @@ const MessageEditReq = z.object({
   content: ContentSchema,
 });
 
+/**
+ * 转发消息（协议扩展 §6）：把 `from_conv_id` 里的某条消息转发到 `conv_id`。
+ *
+ * **不新增事件** —— 转发就是一次普通的 `message.new`（内容被复制过去），
+ * 客户端不需要为转发写额外分支。
+ */
+const MessageForwardReq = z.object({
+  conv_id: ConvIdSchema,
+  from_conv_id: ConvIdSchema,
+  message_id: MessageIdSchema,
+});
+
 /** 置顶消息（协议扩展 §4）：pin 需要 message_id，unpin 只需要 conv_id。 */
 const MessagePinReq = z.object({
   conv_id: ConvIdSchema,
@@ -340,6 +352,10 @@ export const OPS = {
   'typing.send': { req: TypingSendReq, res: OkSchema },
   'read.set': { req: ReadSetReq, res: OkSchema },
   'message.edit': { req: MessageEditReq, res: z.object({ message: MessageSchema }) },
+  'message.forward': {
+    req: MessageForwardReq,
+    res: z.object({ message_id: MessageIdSchema, seq: z.number().int(), created_at: UnixMsSchema }),
+  },
   'message.pin': { req: MessagePinReq, res: z.object({ conv: ConversationSchema }) },
   'message.unpin': { req: MessageUnpinReq, res: z.object({ conv: ConversationSchema }) },
   'reaction.add': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },

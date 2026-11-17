@@ -6,6 +6,7 @@ const SearchPanel = lazy(() =>
   import('./components/SearchPanel.js').then((m) => ({ default: m.SearchPanel })),
 );
 import { GroupInfoDialog } from './components/GroupInfoDialog.js';
+import { ForwardDialog } from './components/ForwardDialog.js';
 // 管理页按需加载：只有管理员会进，没必要压进首屏 bundle
 const AdminPage = lazy(() =>
   import('./pages/AdminPage.js').then((m) => ({ default: m.AdminPage })),
@@ -53,6 +54,8 @@ export function App(): React.JSX.Element {
   const [showSearch, setShowSearch] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  // 转发：记住"要转发哪条消息"，对话框里选目标会话
+  const [forwarding, setForwarding] = useState<string | null>(null);
   const [unread, setUnread] = useState<Record<string, number>>(() => loadUnread());
   // 打开会话那一刻的未读数：用来插"以下为新消息"分隔线
   const [unreadOnOpen, setUnreadOnOpen] = useState<Record<string, number>>({});
@@ -799,6 +802,7 @@ export function App(): React.JSX.Element {
             ? {}
             : { pinnedMessageId: activeConv.pinned_message_id })}
           canPinMessages={myRole === 'owner' || myRole === 'admin'}
+          onForward={(messageId) => setForwarding(messageId)}
           onPin={(messageId) => {
             const client = clientRef.current;
             if (client === null || activeConvId === null) return;
@@ -915,6 +919,25 @@ export function App(): React.JSX.Element {
         >
           {lastError}
         </div>
+      )}
+
+      {forwarding !== null && activeConv !== null && (
+        <ForwardDialog
+          convs={convs}
+          currentConvId={activeConv.id}
+          onClose={() => setForwarding(null)}
+          onPick={async (targetConvId) => {
+            const client = clientRef.current;
+            if (client === null) return;
+            await client.call('message.forward', {
+              conv_id: targetConvId,
+              from_conv_id: activeConv.id,
+              message_id: forwarding,
+            });
+            // 成功后关掉对话框（列表更新由 message.new 推送驱动）
+            setForwarding(null);
+          }}
+        />
       )}
 
       {showGroupInfo && activeConv !== null && (
