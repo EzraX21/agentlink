@@ -425,6 +425,10 @@ export function ChatWindow({
           onScroll={onScroll}
           className="al-chat-bg h-full overflow-y-auto"
           style={{ contain: 'strict' }}
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-label={`${convTitle} 的消息`}
         >
           {loadingMore && <div className="al-muted py-2 text-center text-xs">加载历史…</div>}
           {!hasMore && messages.length > 0 && (
@@ -454,6 +458,8 @@ export function ChatWindow({
                       <span
                         className="shrink-0 rounded-full px-2 py-0.5 text-[11px]"
                         style={{ background: 'var(--al-primary)', color: '#fff' }}
+                        role="separator"
+                        aria-label="以下为新消息"
                       >
                         以下为新消息
                       </span>
@@ -586,6 +592,7 @@ export function ChatWindow({
         <div className="flex items-end gap-2">
           <button
             className="al-btn-ghost"
+            aria-label="添加附件"
             title="附件（点击选择，也可以拖进来或直接粘贴）"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading > 0}
@@ -606,6 +613,7 @@ export function ChatWindow({
             ref={textareaRef}
             className="al-input resize-none"
             rows={1}
+            aria-label="消息输入"
             placeholder={
               replyTo !== null
                 ? `回复 ${replyTo.sender.display_name}…（Enter 发送，Esc 取消引用）`
@@ -639,7 +647,12 @@ export function ChatWindow({
               }
             }}
           />
-          <button className="al-btn" onClick={submit} disabled={draft.trim() === ''}>
+          <button
+            className="al-btn"
+            onClick={submit}
+            disabled={draft.trim() === ''}
+            aria-label="发送消息"
+          >
             发送
           </button>
         </div>

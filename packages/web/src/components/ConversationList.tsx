@@ -32,6 +32,7 @@ function UnreadBadge({ count }: { count: number }): React.JSX.Element | null {
     <span
       className="shrink-0 rounded-full px-1.5 text-[10px] font-medium text-white"
       style={{ background: 'var(--al-primary)' }}
+      aria-label={`${count} 条未读`}
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -70,7 +71,7 @@ export function ConversationList({
         />
       </header>
 
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 overflow-y-auto py-1" role="list" aria-label="会话列表">
         {convs.length === 0 && (
           <div className="al-muted p-6 text-center text-xs">
             还没有会话。
@@ -94,6 +95,15 @@ export function ConversationList({
               key={conv.id}
               className="al-conv-item"
               data-active={conv.id === activeConvId}
+              role="button"
+              tabIndex={0}
+              aria-current={conv.id === activeConvId}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect(conv.id);
+                }
+              }}
               onClick={() => onSelect(conv.id)}
               onContextMenu={(e) => {
                 e.preventDefault();

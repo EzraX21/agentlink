@@ -32,6 +32,7 @@ export const MILESTONES = [
   'ui-admin',
   'ui-media',
   'ui-ux',
+  'ui-browser',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */
@@ -112,6 +113,10 @@ class ServerHandle {
       UPLOADS_DIR: path.join(this.dataDir, 'uploads'),
       LOG_LEVEL: 'info',
       AUTO_MIGRATE: 'true',
+      // 浏览器验收需要知道 Chromium 装在哪里（HOME 只读时默认位置不可用）
+      PLAYWRIGHT_BROWSERS_PATH:
+        process.env.PLAYWRIGHT_BROWSERS_PATH ??
+        path.resolve(repoRoot, '../.runtime/pw-browsers'),
       ...extra,
     };
   }

@@ -13,11 +13,13 @@
     "test": "pnpm -r test",
     "acceptance": "node scripts/acceptance/run.mjs",
     "dev:server": "pnpm --filter @agentlink/server dev",
-    "dev:web": "pnpm --filter @agentlink/web dev"
+    "dev:web": "pnpm --filter @agentlink/web dev",
+    "e2e:install": "PLAYWRIGHT_BROWSERS_PATH=../.runtime/pw-browsers playwright-core install chromium"
   },
   "devDependencies": {
     "typescript": "5.9.3",
     "ws": "8.23.0",
-    "@types/ws": "8.18.2"
+    "@types/ws": "8.18.2",
+    "playwright-core": "1.65.1"
   }
 }

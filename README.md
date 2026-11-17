@@ -44,9 +44,13 @@ pnpm dev:web                                 # http://127.0.0.1:5173，已配好
 ```bash
 export XDG_RUNTIME_DIR="$PWD/../.runtime"
 
+# 真浏览器 E2E 需要一次性装 Chromium（~126 MiB，装到可写目录，不是 ~/.cache）
+PLAYWRIGHT_BROWSERS_PATH="$PWD/../.runtime/pw-browsers" pnpm run e2e:install
+
 node scripts/acceptance/run.mjs m0            # 单个里程碑
 node scripts/acceptance/run.mjs m0 m1 m2      # 按顺序跑多个
-node scripts/acceptance/run.mjs all           # 全部（含 M10 的 Docker 部署）
+node scripts/acceptance/run.mjs all           # 全部（含 Docker 与真浏览器）
+./scripts/verify.sh --no-browser --no-docker  # 只要构建+类型+单测+逻辑验收
 ```
 
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。

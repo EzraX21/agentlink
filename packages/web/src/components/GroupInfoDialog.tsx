@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Modal } from './Modal.js';
 
 /**
  * 群信息编辑（群名 + 公告）。
@@ -24,19 +25,18 @@ export function GroupInfoDialog({
   const [announcement, setAnnouncement] = useState(initialAnnouncement);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
 
   const dirty =
     title !== initialTitle || announcement !== initialAnnouncement;
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center"
-      style={{ background: 'rgb(0 0 0 / 45%)' }}
-      onClick={onClose}
-    >
-      <div className="al-card w-[480px]" onClick={(e) => e.stopPropagation()}>
+    <Modal title="群信息" onClose={onClose} labelledBy={titleId}>
+      <div className="w-[480px]">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">群信息</h2>
+          <h2 id={titleId} className="text-base font-semibold">
+            群信息
+          </h2>
           <button className="al-muted" onClick={onClose} title="关闭">
             ✕
           </button>
@@ -110,6 +110,6 @@ export function GroupInfoDialog({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

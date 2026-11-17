@@ -22,7 +22,8 @@
 | M11 插件钩子与多实例 | ✅ | 2026-11-17 | `run.mjs m11` | 36 |
 | *补：Web 管理页 | ✅ | 2026-11-17 | `run.mjs ui-admin` | 91 + 4 渲染测试 |
 | *补：附件 UI + 搜索 UI | ✅ | 2026-11-17 | `run.mjs ui-media` | 41 + 5 渲染测试 |
-| *补：引用回复/右键菜单/草稿/未读/置顶 | ✅ | 2026-11-17 | `run.mjs ui-ux` | 97 + 38 渲染测试 |
+| *补：引用回复/右键菜单/草稿/未读/置顶 | ✅ | 2026-11-17 | `run.mjs ui-ux` | 97 + 47 渲染测试 |
+| *补：**真浏览器 E2E** | ✅ | 2026-11-17 | `run.mjs ui-browser` | 25（Chromium headless） |
 
 ## 六条验收标准
 
@@ -51,9 +52,10 @@ node scripts/acceptance/run.mjs m4
 
 ## 已知限制
 
-- **M6 的浏览器验证是分层的**：本机 snap 版 Firefox 在只读 HOME 下起不来，所以 GUI
-  用两层证据代替端到端浏览器截图 —— (a) 真实 store 逻辑在 Node 里驱动（`_webstore_probe.ts`），
-  (b) 组件在 jsdom 里真实渲染（5 项 Vitest）。像素级外观没有自动化回归。
+- **M6 的浏览器验证现在有三层**：(a) 真实 store 逻辑在 Node 里驱动（`_webstore_probe.ts`）、
+  (b) 组件在 jsdom 里渲染（Vitest 47 项）、(c) **真 Chromium 跑完整流程**（`ui-browser`，
+  含真实上传、blob 图片解码、流式 DOM 增长、窄屏布局、控制台无报错）。
+  仍然没有的：像素级视觉回归（截图只作为产物存档，不做 diff）。
 - **M9 的 `examples/llm-agent`** 只在"未配置 `LLM_API_KEY` 时退化成回显"的路径上被验证过；
   真实 LLM 调用需要外部 API key，不在验收范围内（实现计划把 M9 的这一项标为"可选"）。
 - **M11 的钩子** 只覆盖 `onMessageIn` / `onMessageOut` 两个点。没有钩子的热重载、沙箱或

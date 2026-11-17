@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Modal } from './Modal.js';
 
 /**
  * 新建群组对话框。
@@ -21,16 +22,15 @@ export function CreateGroupDialog({
   const [memberIds, setMemberIds] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center"
-      style={{ background: 'rgb(0 0 0 / 45%)' }}
-      onClick={onClose}
-    >
-      <div className="al-card w-[420px]" onClick={(e) => e.stopPropagation()}>
+    <Modal title="新建群组" onClose={onClose} labelledBy={titleId}>
+      <div className="w-[420px]">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">新建群组</h2>
+          <h2 id={titleId} className="text-base font-semibold">
+            新建群组
+          </h2>
           <button className="al-muted" onClick={onClose}>
             ✕
           </button>
@@ -110,6 +110,6 @@ export function CreateGroupDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

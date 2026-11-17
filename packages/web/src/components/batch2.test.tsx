@@ -158,7 +158,7 @@ describe('引用回复', () => {
     await waitFor(() => expect(screen.getByText(/回复 小明/)).toBeTruthy());
 
     fireEvent.change(screen.getByPlaceholderText(/回复 小明/), { target: { value: '我的回复' } });
-    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend).toHaveBeenCalledWith('我的回复', 'm1');
@@ -209,7 +209,7 @@ describe('草稿', () => {
     const onSend = vi.fn();
     render(<ChatWindow {...chatProps({ onSend })} />);
     fireEvent.change(screen.getByPlaceholderText(/写消息/), { target: { value: '要发的内容' } });
-    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('要发的内容', undefined));
     expect((screen.getByPlaceholderText(/写消息/) as HTMLTextAreaElement).value).toBe('');
   });

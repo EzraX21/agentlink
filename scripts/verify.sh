@@ -22,12 +22,17 @@ if [ -z "${DOCKER_CONFIG:-}" ]; then
 fi
 
 WITH_DOCKER=1
+WITH_BROWSER=1
 for arg in "$@"; do
   case "$arg" in
     --no-docker) WITH_DOCKER=0 ;;
+    --no-browser) WITH_BROWSER=0 ;;
     *) echo "未知参数: $arg"; exit 2 ;;
   esac
 done
+
+# 真浏览器 E2E 需要 Chromium（一次性安装，~126 MiB）
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$REPO_ROOT/../.runtime/pw-browsers}"
 
 fail() { echo -e "\n\033[31m✗ $*\033[0m"; exit 1; }
 step() { echo -e "\n\033[1m\033[36m=== $* ===\033[0m"; }
@@ -42,11 +47,20 @@ step "3/4 单元测试（pnpm -r test）"
 pnpm -r test || fail "单元测试失败"
 
 step "4/4 里程碑验收"
+if [ "$WITH_BROWSER" -ne 1 ]; then
+  TARGETS="${TARGETS% ui-browser}"
+  echo "（已跳过 ui-browser：--no-browser）"
+fi
+
 if [ "$WITH_DOCKER" -eq 1 ]; then
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media ui-ux"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media ui-ux ui-browser"
 else
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media ui-ux"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media ui-ux ui-browser"
   echo "（已跳过 m10：--no-docker）"
+fi
+
+if [ ! -x "$PLAYWRIGHT_BROWSERS_PATH/chromium-1255/chrome-linux/chrome" ] && [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+  echo "提示：未找到 Chromium，先跑一次 pnpm run e2e:install（或加 --no-browser 跳过）"
 fi
 
 node scripts/acceptance/run.mjs $TARGETS || fail "验收未全部通过"
