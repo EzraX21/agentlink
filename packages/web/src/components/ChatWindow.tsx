@@ -5,6 +5,7 @@ import { MessageBubble } from './MessageBubble.js';
 import { MessageContextMenu, type ContextMenuTarget } from './MessageContextMenu.js';
 import { clearDraft, loadDraft, saveDraft } from '../lib/localState.js';
 import { REDUCED_MOTION_QUERY, useMediaQuery } from '../lib/useMediaQuery.js';
+import { reportTyping, whoIsTyping } from '../lib/typing.js';
 import { api } from '../lib/api.js';
 import { Excerpt } from './Excerpt.js';
 
@@ -39,6 +40,10 @@ interface Props {
   unreadOnOpen?: number;
   /** 仍在离线发件箱里的本地消息 id（气泡上标"待发送"）。 */
   pendingLocalIds?: ReadonlySet<string>;
+  /** store 里的打字记录（`conv:user` → 时间戳）。 */
+  typing?: Record<string, number>;
+  /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
+  onTyping?: () => void;
   /** 窄屏时显示返回按钮（回到会话列表）。 */
   onBack?: () => void;
   /** 点标题 / 群信息按钮：查看（有权限则可改）群名与公告。 */
@@ -104,12 +109,29 @@ export function ChatWindow({
   highlightMessageId,
   unreadOnOpen = 0,
   pendingLocalIds,
+  typing,
+  onTyping,
   onBack,
   onOpenGroupInfo,
   canEditGroup = false,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
+  // 打字提示 3 秒过期，需要一个心跳来重算（否则过期后不重渲染就一直是"正在输入"）
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mem of members) m.set(mem.user_id, mem.user.display_name);
+    return m;
+  }, [members]);
+  const typists = useMemo(
+    () => (typing === undefined ? [] : whoIsTyping(typing, convId, selfId, nameById, nowTick)),
+    [typing, convId, selfId, nameById, nowTick],
+  );
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -361,7 +383,13 @@ export function ChatWindow({
           )}
           <div className="min-w-0">
             <div className="truncate font-semibold">{convTitle}</div>
-            <div className="al-muted text-[11px]">{members.length} 位成员</div>
+            {typists.length > 0 ? (
+              <div className="text-[11px]" style={{ color: 'var(--al-primary)' }} aria-live="polite">
+                {typists.join('、')} 正在输入…
+              </div>
+            ) : (
+              <div className="al-muted text-[11px]">{members.length} 位成员</div>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -689,6 +717,7 @@ export function ChatWindow({
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
+              onTyping?.();
               // 输入框随内容增高（上限 140px，见 style.maxHeight）
               const el = e.currentTarget;
               el.style.height = 'auto';

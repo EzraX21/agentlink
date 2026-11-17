@@ -327,6 +327,18 @@ export async function run(ctx) {
   ).then(() => true).catch(() => false);
   ok(excerptExists, 'Excerpt 独立成模块（否则 SearchPanel 会被提升回主包）');
 
+  section('B1h. 「正在输入」客户端一半（协议未扩，按 §12 降级）');
+  const typingSrc = await readFile(`${repoRoot}/packages/web/src/lib/typing.ts`, 'utf8');
+  includes(typingSrc, 'UNSUPPORTED_OP', '收到 UNSUPPORTED_OP 就停用（协议 §12 的降级语义）');
+  includes(typingSrc, 'THROTTLE_MS', '打字节流有节流');
+  includes(typingSrc, 'whoIsTyping', '有"谁在打字"的计算');
+  includes(typingSrc, '3000', '打字提示 3 秒过期');
+  includes(src.chat, '正在输入', '聊天窗头部显示"正在输入"');
+  includes(src.app, 'reportTyping', 'App 在输入时上报');
+  // 关键：客户端**没有**把 typing.send 注册进协议包（否则就是擅自扩协议）
+  const opsSrc = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
+  ok(!opsSrc.includes('typing.send'), '协议包仍然没有 typing.send（等审批）');
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -342,7 +354,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 89, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥89）`);
+  gte(Number(passed?.[1] ?? 0), 100, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥100）`);
 
   a.close();
   b.close();

@@ -31,6 +31,7 @@ import {
   SIDEBAR_MIN,
 } from './lib/localState.js';
 import { NARROW_QUERY, useMediaQuery } from './lib/useMediaQuery.js';
+import { reportTyping } from './lib/typing.js';
 import {
   bumpAttempts,
   enqueueOutbox,
@@ -89,6 +90,7 @@ export function App(): React.JSX.Element {
     removeMessage,
     handleEvent,
     streaming,
+    typing,
     setStreamingText,
     theme,
     setTheme,
@@ -750,6 +752,12 @@ export function App(): React.JSX.Element {
           highlightMessageId={highlightId}
           onJumpToMessage={jumpToMessage}
           pendingLocalIds={pendingIds}
+          typing={typing}
+          onTyping={() => {
+            const client = clientRef.current;
+            if (client === null || activeConvId === null) return;
+            void reportTyping(client, activeConvId);
+          }}
           unreadOnOpen={unreadOnOpen[activeConv.id] ?? 0}
           {...(narrow ? { onBack: () => setActiveConv(null) } : {})}
           onOpenGroupInfo={() => setShowGroupInfo(true)}
