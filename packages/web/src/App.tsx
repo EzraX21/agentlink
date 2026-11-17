@@ -795,6 +795,20 @@ export function App(): React.JSX.Element {
           onJumpToMessage={jumpToMessage}
           pendingLocalIds={pendingIds}
           typing={typing}
+          onToggleReaction={(messageId, emoji, mine) => {
+            const client = clientRef.current;
+            if (client === null || activeConvId === null) return;
+            // 点过的再点就是取消（协议扩展 §2）
+            void client
+              .call(mine ? 'reaction.remove' : 'reaction.add', {
+                conv_id: activeConvId,
+                message_id: messageId,
+                emoji,
+              })
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : '表情回应失败');
+              });
+          }}
           online={connected}
           onTyping={() => {
             const client = clientRef.current;

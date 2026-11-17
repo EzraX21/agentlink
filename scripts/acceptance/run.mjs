@@ -43,6 +43,8 @@ export const MILESTONES = [
   'ext-large-file',
   // 已读回执（协议扩展 §5）
   'ext-read',
+  // 表情回应（协议扩展 §2）
+  'ext-reaction',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

@@ -78,6 +78,26 @@ export const conversations = sqliteTable(
   (t) => [check('ck_conversations_kind', sql`${t.kind} IN ('group','dm')`)],
 );
 
+/** 表情回应（协议扩展 §2）。主键 (message_id, user_id, emoji)：重复点 = 取消。 */
+export const messageReactions = sqliteTable(
+  'message_reactions',
+  {
+    messageId: text('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    emoji: text('emoji').notNull(),
+    tenantId: text('tenant_id').notNull().default('default'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.userId, t.emoji] }),
+    index('ix_reactions_message').on(t.messageId),
+  ],
+);
+
 export const memberships = sqliteTable(
   'memberships',
   {

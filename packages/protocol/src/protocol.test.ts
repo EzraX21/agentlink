@@ -122,9 +122,11 @@ describe('op 注册表', () => {
       // 见 docs/PROPOSAL-protocol-ext.md
       'typing.send',
       'read.set',
+      'reaction.add',
+      'reaction.remove',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(26);
+    expect(OP_NAMES.length).toBe(28);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {
@@ -237,6 +239,8 @@ describe('事件注册表', () => {
         'poke',
         // 协议扩展 §5（经批准）：已读水位是瞬时事件
         'read.update',
+        // 协议扩展 §2：表情回应是**状态**，带 seq 可补发
+        'message.reaction',
       ].sort(),
     );
   });
@@ -251,12 +255,16 @@ describe('事件注册表', () => {
         'member.leave',
         'member.update',
         'group.update',
+        // 协议扩展 §2：回应是状态，必须能补发
+        'message.reaction',
       ].sort(),
     );
     expect(EVENTS.typing.seq).toBe(false);
     expect(EVENTS.poke.seq).toBe(false);
     expect(EVENTS['message.update'].seq).toBe(false);
+    expect(EVENTS['read.update'].seq).toBe(false);
     expect(EVENTS['message.new'].seq).toBe(true);
+    expect(EVENTS['message.reaction'].seq).toBe(true);
   });
 
   it('isPersistedEvtType 拒绝瞬时事件', () => {
@@ -307,5 +315,21 @@ describe('错误码与配额（协议 §9 / §11）', () => {
     expect(STREAM_FLUSH_INTERVAL_MS).toBe(500);
     expect(STREAM_FLUSH_CHARS).toBe(512);
     expect(STREAM_IDLE_TIMEOUT_MS).toBe(60_000);
+  });
+});
+
+describe('表情回应（协议扩展 §2）', () => {
+  it('emoji 只接受单个表情，拒绝任意字符串', () => {
+    const okData = {
+      conv_id: 'c_01M7JD0000000000000000000A',
+      message_id: 'm_01M7JD0000000000000000000A',
+      emoji: '👍',
+    };
+    expect(parseOpData('reaction.add', okData).success).toBe(true);
+    expect(parseOpData('reaction.add', { ...okData, emoji: '点赞' }).success).toBe(false);
+    expect(parseOpData('reaction.add', { ...okData, emoji: '👍👍👍' }).success).toBe(false);
+    // 带 ZWJ / 肤色的组合表情应当接受
+    expect(parseOpData('reaction.add', { ...okData, emoji: '👨‍👩‍👧' }).success).toBe(true);
+    expect(parseOpData('reaction.add', { ...okData, emoji: '👍🏽' }).success).toBe(true);
   });
 });

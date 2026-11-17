@@ -3,6 +3,7 @@ import type {
   EvtFrame,
   Member,
   Message,
+  ReactionSummary,
   Self,
 } from '@agentlink/protocol';
 
@@ -48,6 +49,8 @@ export interface ChatState {
   removeMessage(convId: string, messageId: string): void;
   markRevoked(convId: string, messageId: string): void;
   applyDelta(convId: string, messageId: string, rev: number, delta: string): void;
+  /** 表情回应变化（协议扩展 §2）：整体替换该消息的汇总。 */
+  setReactions(convId: string, messageId: string, reactions: ReactionSummary[]): void;
   /** 已读水位变化（协议扩展 §5）：只增不减。 */
   setMemberReadSeq(convId: string, userId: string, lastSeq: number): void;
   setStreamingText(convId: string, messageId: string, text: string, rev: number): void;
@@ -114,6 +117,18 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
       const list = get().members[convId] ?? [];
       set({ members: { ...get().members, [convId]: list.filter((m) => m.user_id !== userId) } });
     },
+    setReactions: (convId, messageId, reactions) => {
+      const list = get().messages[convId] ?? [];
+      let changed = false;
+      const next = list.map((m) => {
+        if (m.id !== messageId) return m;
+        changed = true;
+        return { ...m, reactions };
+      });
+      if (!changed) return;
+      set({ messages: { ...get().messages, [convId]: next } });
+    },
+
     setMemberReadSeq: (convId, userId, lastSeq) => {
       const list = get().members[convId] ?? [];
       let changed = false;
@@ -304,6 +319,16 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         case 'member.leave': {
           const data = evt.data as { conv_id: string; user_id: string };
           store.removeMember(data.conv_id, data.user_id);
+          break;
+        }
+        case 'message.reaction': {
+          const data = evt.data as {
+            conv_id: string;
+            message_id: string;
+            reactions: ReactionSummary[];
+          };
+          if (typeof data.message_id !== 'string' || !Array.isArray(data.reactions)) return;
+          store.setReactions(data.conv_id, data.message_id, data.reactions);
           break;
         }
         case 'read.update': {

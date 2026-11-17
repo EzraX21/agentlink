@@ -704,3 +704,31 @@ SSE `content-type` 与帧形状、`?once=1`、非成员 403、缺 token 401、
 
 **验收**（`ext-read`，28 项）：水位持久化、只增不减、事件瞬时、events 表 0 行、
 补发里没有已读、群聊取最小水位、非成员 `PERM_DENIED`、负数 `VALIDATION_FAILED`。
+
+---
+
+## 2026-11-17 · 表情回应：回全量、带 seq、撤回即清
+
+**协议**：`reaction.add` / `reaction.remove`（入参 `conv_id` + `message_id` + `emoji`）、
+事件 `message.reaction`（**带 seq**）、`Message.reactions` 可选字段；迁移 `0005`。
+
+**四个取舍**：
+
+1. **返回全量汇总而不是增量**。增量方案要客户端自己做加/减，一旦丢一帧就会长期
+   不一致（而且没法自愈）。全量是"整体替换"，天然幂等。
+2. **事件带 seq（可补发）**。回应是**状态**（谁给这条点了什么），断线重连必须补齐；
+   对比已读回执那种"过期即无用"的信号用 `seq=null`。两者语义不同，不能一刀切。
+3. **`emoji` 只接受单个表情**（1～32 码点 + `Extended_Pictographic` 正则，
+   允许 ZWJ 组合与肤色）。放开成任意字符串等于给了一个任意长度的文本注入面。
+   服务端校验在协议层，客户端只提供一组常用表情。
+4. **撤回即清空**。撤回的消息不该还挂着"👍 2"，所以 `revokeMessageById` 在同一个
+   事务里 `clearReactions`，水合时也对 `state='revoked'` 再兜一层。
+
+**顺带修的两处测试自身问题**（都是"会假通过"的类型）：
+
+- 断言撤回后状态时用了 `history.fetch` —— 历史列表**不返回**已撤回的行，
+  于是 `find(...)` 得到 `undefined`，"没有回应残留"这条在 `undefined` 上**假通过**。
+  改用 `message.get`。
+- `message_id` 用了 `m_does_not_exist`，但 ID 有 `m_<ULID>` 格式校验，
+  于是拿到的是 `VALIDATION_FAILED` 而不是 `NOT_FOUND` —— 断言写错了预期。
+  改用格式合法但不存在的 ULID。

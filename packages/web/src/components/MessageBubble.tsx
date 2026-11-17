@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ContentBlock, Message } from '@agentlink/protocol';
 import { avatarColor, formatTime, initials } from '../lib/format.js';
 import { FileBlockView, ImageBlockView, VideoBlockView } from './AttachmentBlocks.js';
+import { ReactionBar } from './ReactionBar.js';
 import { RichText } from './RichText.js';
 
 interface Props {
@@ -27,6 +28,10 @@ interface Props {
   onOpenMenuByKeyboard?: (message: Message, element: HTMLElement) => void;
   /** 对方（群里是"全员"）读到的最大 seq，用来画 ✓ / ✓✓。 */
   readSeq?: number;
+  /** 切换某个表情回应（协议扩展 §2）。不给就不显示回应栏。 */
+  onToggleReaction?: ((message: Message, emoji: string) => void) | undefined;
+  /** 自己的用户 id（判断"我点过这个表情没有"）。 */
+  selfId?: string | undefined;
 }
 
 /**
@@ -48,6 +53,8 @@ export function MessageBubble({
   pending,
   onOpenMenuByKeyboard,
   readSeq,
+  onToggleReaction,
+  selfId,
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
@@ -234,6 +241,15 @@ export function MessageBubble({
             )}
           </span>
         </div>
+
+        {/* 表情回应：撤回的消息不显示（服务端撤回时已清空） */}
+        {!revoked && onToggleReaction !== undefined && (
+          <ReactionBar
+            reactions={message.reactions}
+            selfId={selfId ?? ''}
+            onToggle={(emoji) => onToggleReaction(message, emoji)}
+          />
+        )}
 
         <div className="mt-0.5 flex gap-2 text-[11px] opacity-0 transition-opacity hover:opacity-100">
           {!revoked && canRevoke && (

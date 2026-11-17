@@ -44,6 +44,8 @@ interface Props {
   typing?: Record<string, number>;
   /** 上报打字（由 App 注入，内部已节流且会对 UNSUPPORTED_OP 自动停用）。 */
   onTyping?: () => void;
+  /** 切换表情回应（协议扩展 §2）：自己点过就是取消，否则是添加。 */
+  onToggleReaction?: ((messageId: string, emoji: string, mine: boolean) => void) | undefined;
   /** 当前是否在线：离线时不允许发附件（附件必须先上传成功才能排队）。 */
   online?: boolean;
   /** 窄屏时显示返回按钮（回到会话列表）。 */
@@ -113,6 +115,7 @@ export function ChatWindow({
   pendingLocalIds,
   typing,
   onTyping,
+  onToggleReaction,
   online = true,
   onBack,
   onOpenGroupInfo,
@@ -586,6 +589,18 @@ export function ChatWindow({
                       highlighted={item.message.id === highlightMessageId}
                       pending={pendingLocalIds?.has(item.message.id) === true}
                       readSeq={readWatermark}
+                      selfId={selfId}
+                      {...(onToggleReaction === undefined
+                        ? {}
+                        : {
+                            onToggleReaction: (m, emoji) => {
+                              const mine =
+                                m.reactions?.some(
+                                  (r) => r.emoji === emoji && r.user_ids.includes(selfId),
+                                ) === true;
+                              onToggleReaction(m.id, emoji, mine);
+                            },
+                          })}
                       onJumpToQuote={(id) => {
                         const idx = rows.findIndex(
                           (r) => r.kind === 'msg' && r.message.id === id,

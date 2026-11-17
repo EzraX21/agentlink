@@ -91,6 +91,18 @@ export const SelfSchema = z.object({
 });
 export type Self = z.infer<typeof SelfSchema>;
 
+/**
+ * 一条消息上的某种表情汇总（协议扩展 §2）。
+ *
+ * 回的是**全量**而不是增量：客户端整体替换，丢帧也不会不一致。
+ * `user_ids` 直接给出（群上限 50 人，payload 可控），前端据此判断"我点过没有"。
+ */
+export const ReactionSummarySchema = z.object({
+  emoji: z.string().min(1).max(32),
+  user_ids: z.array(UserIdSchema).max(500),
+});
+export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
+
 export const MessageSchema = z.object({
   id: MessageIdSchema,
   conv_id: ConvIdSchema,
@@ -103,6 +115,11 @@ export const MessageSchema = z.object({
   interrupted: z.boolean(),
   created_at: UnixMsSchema,
   revoked_at: UnixMsSchema.nullable(),
+  /**
+   * 表情回应汇总（协议扩展 §2）。可选：老服务端不返回时客户端按"没有回应"处理。
+   * 撤回的消息一律为空数组。
+   */
+  reactions: z.array(ReactionSummarySchema).optional(),
 });
 export type Message = z.infer<typeof MessageSchema>;
 
@@ -116,6 +133,7 @@ export const ConversationSchema = z.object({
   member_count: z.number().int().nonnegative().optional(),
 });
 export type Conversation = z.infer<typeof ConversationSchema>;
+
 
 export const MemberSchema = z.object({
   conv_id: ConvIdSchema,

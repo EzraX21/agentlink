@@ -9,6 +9,7 @@ import {
   MessageIdSchema,
   MessageSchema,
   RoleSchema,
+  ReactionSummarySchema,
   SearchHitSchema,
   SelfSchema,
   SubscriptionFiltersSchema,
@@ -255,6 +256,26 @@ const TypingSendReq = z.object({ conv_id: ConvIdSchema });
  * 只报"我读到哪了"（`last_seq`），不报"哪条已读" —— 后者事件量随消息数线性增长。
  * 服务端**只增不减**：小于当前水位直接忽略，否则用户翻历史会让已读倒退。
  */
+/**
+ * 表情回应（协议扩展 §2）。
+ *
+ * `emoji` 限定为**单个 Unicode emoji**（1～8 个码点，覆盖带肤色/ZWJ 的组合），
+ * 不接受任意字符串 —— 否则等于给了一个任意长度文本的注入面。
+ */
+const EmojiSchema = z
+  .string()
+  .min(1)
+  .max(32)
+  .refine((v) => /^\p{Extended_Pictographic}(\u200d\p{Extended_Pictographic}|\ufe0f|\p{Emoji_Modifier})*$/u.test(v), {
+    message: '必须是单个 emoji',
+  });
+
+const ReactionReq = z.object({
+  conv_id: ConvIdSchema,
+  message_id: MessageIdSchema,
+  emoji: EmojiSchema,
+});
+
 const ReadSetReq = z.object({
   conv_id: ConvIdSchema,
   last_seq: z.number().int().min(0),
@@ -301,6 +322,8 @@ export const OPS = {
 
   'typing.send': { req: TypingSendReq, res: OkSchema },
   'read.set': { req: ReadSetReq, res: OkSchema },
+  'reaction.add': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
+  'reaction.remove': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
 } as const;
 
 export type OpName = keyof typeof OPS;

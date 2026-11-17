@@ -5,6 +5,7 @@ import {
   MemberSchema,
   MessageIdSchema,
   MessageSchema,
+  ReactionSummarySchema,
   UserIdSchema,
   UserSummarySchema,
 } from './models.js';
@@ -71,6 +72,13 @@ const PokeData = z.object({
   to_user_id: UserIdSchema,
 });
 
+/** 表情回应变化（协议扩展 §2）。带 seq：回应是状态，断线重连要能补齐。 */
+export const MessageReactionData = z.object({
+  conv_id: ConvIdSchema,
+  message_id: MessageIdSchema,
+  reactions: z.array(ReactionSummarySchema),
+});
+
 /** 已读水位变化（协议扩展 §5）。 */
 export const ReadUpdateData = z.object({
   conv_id: ConvIdSchema,
@@ -94,6 +102,7 @@ export const EVENTS = {
    * 补发日志会被刷爆；重连后靠 `conv.get` 里的成员水位一次性对齐。
    */
   'read.update': { data: ReadUpdateData, seq: false },
+  'message.reaction': { data: MessageReactionData, seq: true },
   poke: { data: PokeData, seq: false },
 } as const;
 

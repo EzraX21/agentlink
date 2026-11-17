@@ -215,3 +215,52 @@ describe('已读水位（协议扩展 §5）', () => {
     expect(store.getState().members[CONV]?.[0]?.last_read_seq).toBe(7);
   });
 });
+
+describe('表情回应事件（协议扩展 §2）', () => {
+  it('message.reaction 整体替换该消息的汇总', () => {
+    const store = makeStore();
+    store.methods.addMessage({
+      id: 'm_r1',
+      conv_id: CONV,
+      seq: 1,
+      sender: { id: 'u_b', kind: 'human', display_name: '小明' },
+      content: [{ type: 'text', text: 'hi' }],
+      reply_to: null,
+      state: 'final',
+      interrupted: false,
+      created_at: 1,
+      revoked_at: null,
+    });
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'message.reaction',
+      seq: 5,
+      ts: 1,
+      data: {
+        conv_id: CONV,
+        message_id: 'm_r1',
+        reactions: [{ emoji: '👍', user_ids: ['u_b'] }],
+      },
+    } as never);
+    const msg = (store.getState().messages[CONV] ?? [])[0];
+    expect(msg?.reactions).toEqual([{ emoji: '👍', user_ids: ['u_b'] }]);
+
+    // 再来一帧（别人也点了）→ 整体替换，不是叠加
+    store.methods.handleEvent({
+      v: 1,
+      kind: 'evt',
+      type: 'message.reaction',
+      seq: 6,
+      ts: 1,
+      data: {
+        conv_id: CONV,
+        message_id: 'm_r1',
+        reactions: [{ emoji: '👍', user_ids: ['u_b', 'u_a'] }],
+      },
+    } as never);
+    expect((store.getState().messages[CONV] ?? [])[0]?.reactions).toEqual([
+      { emoji: '👍', user_ids: ['u_b', 'u_a'] },
+    ]);
+  });
+});

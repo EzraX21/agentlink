@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MediaViewer } from './MediaViewer.js';
 import { VideoBlockView } from './AttachmentBlocks.js';
 import { MessageBubble } from './MessageBubble.js';
+import { ReactionBar } from './ReactionBar.js';
 import type { Message } from '@agentlink/protocol';
 
 /**
@@ -296,5 +297,42 @@ describe('弹窗必须是独立浮层（不随消息滚动）', () => {
       node = node.parentElement;
     }
     expect(foundScroller).toBe(false);
+  });
+});
+
+describe('表情回应（协议扩展 §2）', () => {
+  const reactions = [
+    { emoji: '👍', user_ids: ['u_a', 'u_b'] },
+    { emoji: '🎉', user_ids: ['u_b'] },
+  ];
+
+  it('显示每个表情与人数，自己点过的高亮并标 aria-pressed', () => {
+    render(<ReactionBar reactions={reactions} selfId="u_a" onToggle={() => {}} />);
+    const thumbs = screen.getByRole('button', { name: /👍 2 人（含我）/ });
+    expect(thumbs.getAttribute('aria-pressed')).toBe('true');
+    const party = screen.getByRole('button', { name: /🎉 1 人/ });
+    expect(party.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('点 chip 触发切换（服务端按 (消息,人,emoji) 去重）', () => {
+    const onToggle = vi.fn();
+    render(<ReactionBar reactions={reactions} selfId="u_a" onToggle={onToggle} />);
+    fireEvent.click(screen.getByRole('button', { name: /👍/ }));
+    expect(onToggle).toHaveBeenCalledWith('👍');
+  });
+
+  it('点「＋」展开面板，选表情后收起并触发', () => {
+    const onToggle = vi.fn();
+    render(<ReactionBar reactions={[]} selfId="u_a" onToggle={onToggle} />);
+    fireEvent.click(screen.getByRole('button', { name: '添加表情回应' }));
+    const pick = screen.getByRole('button', { name: '回应 ❤️' });
+    fireEvent.click(pick);
+    expect(onToggle).toHaveBeenCalledWith('❤️');
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('没有回应时只显示「＋」', () => {
+    render(<ReactionBar reactions={undefined} selfId="u_a" onToggle={() => {}} />);
+    expect(screen.getByRole('button', { name: '添加表情回应' })).toBeTruthy();
   });
 });

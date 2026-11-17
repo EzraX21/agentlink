@@ -23,6 +23,7 @@ import {
 } from '../db/queries.js';
 import { messages as messagesTable, type MessageRow, type UserRow } from '../db/schema.js';
 import { newMessageId, nowMs } from '../ids.js';
+import { clearReactions, listReactionsFor } from './reactions.js';
 import { assertNotMuted, requireMembership } from '../permissions.js';
 
 /**
@@ -105,11 +106,22 @@ export function hydrateMessages(db: Db, rows: readonly MessageRow[]): Message[] 
   if (rows.length === 0) return [];
   const senders = findUsersByIds(db, [...new Set(rows.map((r) => r.senderId))]);
   const byId = new Map(senders.map((u) => [u.id, u]));
+  // 一次查出整页的回应，避免每条消息一次查询（N+1）
+  const reactionsByMessage = listReactionsFor(
+    db,
+    rows.map((r) => r.id),
+  );
   const out: Message[] = [];
   for (const row of rows) {
     const sender = byId.get(row.senderId);
     if (!sender) continue;
-    out.push(toMessage(row, sender));
+    const msg = toMessage(row, sender);
+    const reactions = reactionsByMessage.get(row.id);
+    // 撤回的消息不带回应（撤回时已经清空，这里再兜一层）
+    if (reactions !== undefined && reactions.length > 0 && row.state !== 'revoked') {
+      msg.reactions = reactions;
+    }
+    out.push(msg);
   }
   return out;
 }
@@ -331,6 +343,8 @@ export function revokeMessageById(
 
   const at = nowMs();
   const seq = transaction(db, () => {
+    // 回应没有历史价值：撤回后清空，否则别人还能看到"已撤回的消息上有 👍"
+    clearReactions(db, input.messageId);
     revokeMessage(db, input.messageId, input.userId, at);
     return appendEvent(db, {
       tenantId: 'default',
