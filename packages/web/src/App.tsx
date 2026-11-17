@@ -28,6 +28,12 @@ import {
   SIDEBAR_MIN,
 } from './lib/localState.js';
 import { NARROW_QUERY, useMediaQuery } from './lib/useMediaQuery.js';
+import {
+  bumpAttempts,
+  enqueueOutbox,
+  loadOutbox,
+  removeFromOutbox,
+} from './lib/outbox.js';
 
 const PAGE_SIZE = 50;
 
@@ -48,6 +54,10 @@ export function App(): React.JSX.Element {
   const [unreadOnOpen, setUnreadOnOpen] = useState<Record<string, number>>({});
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => loadSidebarWidth());
+  // 待发送（离线排队）的本地消息 id：用于在气泡上标"待发送"
+  const [pendingIds, setPendingIds] = useState<Set<string>>(
+    () => new Set(loadOutbox().map((e) => e.localId)),
+  );
   const draggingSidebar = useRef(false);
   const [pinned, setPinned] = useState<string[]>(() => loadPinned());
   const [showMembers, setShowMembers] = useState(true);
@@ -288,6 +298,12 @@ export function App(): React.JSX.Element {
           setError,
           uuid,
           now: () => Date.now(),
+          isOnline: () => client.connected,
+          onOffline: (entry) => {
+            // 断线：进发件箱，等恢复后按同一个 client_msg_id 重发（幂等）
+            enqueueOutbox({ ...entry, attempts: 0 });
+            setPendingIds((prev) => new Set(prev).add(entry.localId));
+          },
         },
         { convId: activeConvId, self, text, replyTo },
       );
@@ -496,6 +512,54 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
+  /**
+   * 连接可用时把发件箱里的消息重发出去。
+   *
+   * 关键点：重发用的是**原来的 client_msg_id**，所以即使上次其实已经到达
+   * （只是响应丢了），服务端也会按幂等键返回同一条消息，不会产生重复。
+   */
+  const flushOutbox = useCallback(async () => {
+    const client = clientRef.current;
+    if (client === null || !client.connected) return;
+    const entries = loadOutbox();
+    if (entries.length === 0) {
+      setPendingIds(new Set());
+      return;
+    }
+
+    for (const entry of entries) {
+      bumpAttempts(entry.clientMsgId);
+      try {
+        const res = await client.call<{ message_id: string; seq: number; created_at: number }>(
+          'message.send',
+          {
+            conv_id: entry.convId,
+            client_msg_id: entry.clientMsgId,
+            content: entry.content as never,
+            ...(entry.replyTo === null ? {} : { reply_to: entry.replyTo }),
+          },
+        );
+        // 用真实消息替换本地占位（服务端也会推 message.new，按 id 去重）
+        removeMessage(entry.convId, entry.localId);
+        removeFromOutbox(entry.clientMsgId);
+        setPendingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.localId);
+          return next;
+        });
+        void res;
+      } catch {
+        // 仍然失败：保留在队列里，下次再试
+        break;
+      }
+    }
+  }, [removeMessage]);
+
+  // 连接恢复时：清掉"已连接"提示 + 冲发件箱
+  useEffect(() => {
+    if (connected) void flushOutbox();
+  }, [connected, flushOutbox]);
+
   // 连接恢复时给一个短暂的"已连接"提示（断线时用户已经受惊了）
   const [reconnectedFlash, setReconnectedFlash] = useState(false);
   const wasDisconnected = useRef(false);
@@ -680,6 +744,7 @@ export function App(): React.JSX.Element {
           canRevokeOthers={myRole === 'owner' || myRole === 'admin'}
           highlightMessageId={highlightId}
           onJumpToMessage={jumpToMessage}
+          pendingLocalIds={pendingIds}
           unreadOnOpen={unreadOnOpen[activeConv.id] ?? 0}
           {...(narrow ? { onBack: () => setActiveConv(null) } : {})}
           onOpenGroupInfo={() => setShowGroupInfo(true)}

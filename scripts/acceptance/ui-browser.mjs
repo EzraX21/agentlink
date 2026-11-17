@@ -281,7 +281,84 @@ export async function run(ctx) {
     ok(true, '横幅在恢复后消失');
     await page.screenshot({ path: path.join(SHOT_DIR, '10-reconnected.png') });
 
-    section('10. 控制台没有报错');
+    section('10. 离线队列：断线时发的消息，恢复后自动送达且只有一条');
+    // 此时服务端刚重启、页面已重连。先再断一次，模拟"用户没发现断线就发了消息"
+    await ctx.kill9Server();
+    await page.locator('[role="alert"]', { hasText: '实时连接已断开' }).waitFor({ timeout: 20_000 });
+
+    const offlineText = `断线时写的-${Date.now()}`;
+    // 诊断：确认输入框还在、且断线状态下图里没有别的遮罩挡住
+    const textareaCount = await page.locator('textarea').count();
+    ok(textareaCount === 1, `断线时输入框仍在（${textareaCount} 个）`);
+    await page.fill('textarea', offlineText);
+    await page.keyboard.press('Enter');
+    // 气泡是虚拟滚动的，确保视图在底部（发送后应用会自动滚到底，这里再兜一下）
+    await page.locator('.al-chat-bg').first().evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    // 断线期间：气泡必须留着并标"待发送"（不能把用户写的字丢掉）
+    try {
+      await page.waitForSelector(`text=${offlineText}`, { timeout: 20_000 });
+    } catch (err) {
+      const diag = await page.evaluate(() => ({
+        bubbles: document.querySelectorAll('[data-message-id]').length,
+        lastTexts: [...document.querySelectorAll('[data-message-id]')]
+          .slice(-3)
+          .map((el) => (el.textContent ?? '').slice(0, 60)),
+        draft: (document.querySelector('textarea') ?? {}).value ?? '(无输入框)',
+      }));
+      console.log('  诊断：', JSON.stringify(diag));
+      await page.screenshot({ path: path.join(SHOT_DIR, '11-offline-diag.png') });
+      throw err;
+    }
+    ok(true, '断线时消息仍显示在界面上');
+    ok(
+      (await page.locator('text=待发送').count()) >= 1,
+      '气泡上标了「待发送」',
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, '11-offline-queued.png') });
+
+    // 恢复服务端 → 自动重发
+    await ctx.startServer();
+    await page.locator('[role="status"]', { hasText: '连接已恢复' }).waitFor({ timeout: 40_000 });
+    // 等服务端真的收到了这条（用 WS 的 history.fetch 查，比看 DOM 更硬）
+    const login = await http('POST', '/api/auth/login', {
+      body: { username: 'alice', password: 'browser-pass-123' },
+    });
+    const token = login.body.access_token;
+    let delivered = false;
+    for (let i = 0; i < 40; i += 1) {
+      const probe = new WsClient(wsUrl);
+      await probe.connect();
+      await probe.request('auth', { token });
+      const pageRes = await probe.request('history.fetch', { conv_id: conv.id, limit: 100 });
+      probe.close();
+      const msgs = pageRes.data.messages;
+      const hits = msgs.filter((m) =>
+        m.content.some((c) => c.type === 'text' && c.text === offlineText),
+      );
+      if (hits.length === 1) {
+        delivered = true;
+        break;
+      }
+      if (hits.length > 1) {
+        ok(false, `同一条离线消息被送达了 ${hits.length} 次（幂等失效）`);
+        break;
+      }
+      await page.waitForTimeout(500);
+    }
+    ok(delivered, '恢复连接后，离线消息被自动送达（服务端只有一条）');
+    // DOM 里也应只有一条，且不再标"待发送"
+    await page.waitForTimeout(500);
+    const domCount = await page.locator('[data-message-id]', { hasText: offlineText }).count();
+    eq(domCount, 1, '界面上只有一条该消息（没有重复）');
+    ok(
+      (await page.locator('text=待发送').count()) === 0,
+      '送达后「待发送」标记消失',
+    );
+    await page.screenshot({ path: path.join(SHOT_DIR, '12-offline-delivered.png') });
+
+    section('11. 控制台没有报错');
     // 第 9 步是**故意**杀服务端来验证断线横幅，此时浏览器的 WS 连接失败是预期内的，
     // 不能算"页面报错"。除此之外的错误一律不放过。
     const realErrors = consoleErrors.filter(
@@ -293,7 +370,7 @@ export async function run(ctx) {
     );
     eq(realErrors.length, 0, `浏览器控制台无错误${realErrors.length > 0 ? `：${realErrors[0]}` : ''}`);
 
-    section('11. 截图产物');
+    section('12. 截图产物');
     ok(true, `截图已存到 ${SHOT_DIR}`);
   } finally {
     await page.close().catch(() => undefined);

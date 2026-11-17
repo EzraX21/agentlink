@@ -274,6 +274,24 @@ export async function run(ctx) {
   includes(src.local, 'loadSidebarWidth', '侧栏宽度被持久化');
   includes(src.local, 'SIDEBAR_MIN', '宽度有下限');
 
+  section('B1e. 离线发件箱（用协议已有的 client_msg_id 幂等键）');
+  const outboxSrc = await readFile(`${repoRoot}/packages/web/src/lib/outbox.ts`, 'utf8');
+  includes(outboxSrc, 'clientMsgId', '发件箱按 client_msg_id 记录');
+  includes(outboxSrc, 'MAX_ENTRIES', '发件箱有容量上限');
+  const sendSrc = await readFile(`${repoRoot}/packages/web/src/lib/sendText.ts`, 'utf8');
+  includes(sendSrc, 'goOffline', '断线走离线分支');
+  includes(sendSrc, 'onOffline', '断线时回调上层入队');
+  includes(sendSrc, 'isOnline', '断线时不撞发送超时');
+  includes(src.app, 'enqueueOutbox', 'App 断线时入队');
+  includes(src.app, 'flushOutbox', 'App 恢复连接后冲队列');
+  includes(src.chat, '待发送', '气泡上有「待发送」标记');
+  includes(src.chat, 'scrollToBottom', '发送后回到底部（否则虚拟滚动下看不到自己发的）');
+  // 幂等键必须复用：断线重发用同一个 client_msg_id
+  ok(
+    /clientMsgId/.test(sendSrc),
+    '重发复用同一个 client_msg_id（服务端按幂等键去重）',
+  );
+
   section('B2. 本地状态不落库（避免误当服务端能力）');
   const protoOps = await readFile(`${repoRoot}/packages/protocol/src/ops.ts`, 'utf8');
   for (const notAnOp of ['typing.send', 'message.edit', 'reaction.add', 'message.pin']) {
@@ -289,7 +307,7 @@ export async function run(ctx) {
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   ok(!/failed/.test(plain), 'web 单测无失败');
   const passed = /Tests\s+(\d+) passed/.exec(plain);
-  gte(Number(passed?.[1] ?? 0), 54, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥54）`);
+  gte(Number(passed?.[1] ?? 0), 79, `web 单测通过 ${passed?.[1] ?? '?'} 项（≥79）`);
 
   a.close();
   b.close();

@@ -21,6 +21,8 @@ interface Props {
   onJumpToQuote?: (messageId: string) => void;
   /** 高亮（从搜索结果跳过来时用）。 */
   highlighted?: boolean;
+  /** 还在离线发件箱里（尚未送达服务端）。 */
+  pending?: boolean;
 }
 
 /**
@@ -39,6 +41,7 @@ export function MessageBubble({
   onContextMenu,
   onJumpToQuote,
   highlighted,
+  pending,
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
@@ -176,6 +179,12 @@ export function MessageBubble({
           <span className="al-muted ml-2 align-bottom text-[11px]">
             {formatTime(message.created_at)}
             {message.interrupted && ' · 已打断'}
+            {pending === true && (
+              <span title="尚未送达服务器，连接恢复后会自动重发" style={{ opacity: 0.8 }}>
+                {' '}
+                · 待发送 ⏳
+              </span>
+            )}
           </span>
         </div>
 

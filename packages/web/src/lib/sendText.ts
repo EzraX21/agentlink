@@ -32,6 +32,23 @@ export interface SendTextDeps {
   /** 生成 UUID（作为 client_msg_id，协议 §5.3 的幂等键）。 */
   uuid(): string;
   now(): number;
+  /**
+   * 当前连接是否可用。不可用时**不尝试发送**，直接进离线发件箱，
+   * 避免"点了发送先等 10 秒超时再失败"。
+   */
+  isOnline?(): boolean;
+  /**
+   * 断线时的兜底：把消息放进发件箱，等连接恢复后按同一个 client_msg_id 重发。
+   * 提供它就等于启用离线队列；不提供则断线发送直接失败（旧行为）。
+   */
+  onOffline?: (entry: {
+    localId: string;
+    convId: string;
+    clientMsgId: string;
+    content: unknown;
+    replyTo: string | null;
+    createdAt: number;
+  }) => void;
 }
 
 export interface SendTextInput {
@@ -56,8 +73,29 @@ export async function sendText(
   if (text === '') return null;
 
   const localId = `local_${deps.uuid()}`;
+  // 幂等键只生成一次：断线重发必须原样复用（协议 §5.3）
+  const clientMsgId = deps.uuid();
   const createdAt = deps.now();
   const content = [{ type: 'text' as const, text }];
+
+  /** 断线：保留本地气泡（标"待发送"），进发件箱，不等超时。 */
+  const goOffline = (): SendTextResult | null => {
+    if (deps.onOffline === undefined) {
+      deps.removeMessage(input.convId, localId);
+      deps.setError('连接已断开，消息未发出');
+      return null;
+    }
+    deps.onOffline({
+      localId,
+      convId: input.convId,
+      clientMsgId,
+      content,
+      replyTo: input.replyTo ?? null,
+      createdAt,
+    });
+    deps.setError(null);
+    return { messageId: localId, seq: -1, localId };
+  };
 
   // 1. 先本地显示，点击"发送"立刻有反馈
   deps.replaceMessage(input.convId, {
@@ -73,19 +111,24 @@ export async function sendText(
     revoked_at: null,
   });
 
+  // 2. 断线就不必去撞 10 秒超时：直接进发件箱，气泡保留并标记"待发送"
+  if (deps.isOnline !== undefined && !deps.isOnline()) {
+    return goOffline();
+  }
+
   try {
-    // 2. 服务端确认（真实 id / seq）
+    // 3. 服务端确认（真实 id / seq）
     const res = await deps.call<{ message_id: string; seq: number; created_at: number }>(
       'message.send',
       {
         conv_id: input.convId,
-        client_msg_id: deps.uuid(),
+        client_msg_id: clientMsgId,
         content,
         ...(input.replyTo === undefined ? {} : { reply_to: input.replyTo }),
       },
     );
 
-    // 3. 让两条路径收敛成一条：先删掉占位，再放入权威消息
+    // 4. 让两条路径收敛成一条：先删掉占位，再放入权威消息
     deps.removeMessage(input.convId, localId);
     deps.replaceMessage(input.convId, {
       id: res.message_id,
@@ -102,9 +145,14 @@ export async function sendText(
 
     return { messageId: res.message_id, seq: res.seq, localId };
   } catch (err) {
-    // 发送失败：把占位删掉，别让它假装发出去了
+    // 连接断了导致的失败 → 进离线队列（而不是把用户刚写的字丢掉）
+    const message = err instanceof Error ? err.message : '发送失败';
+    if (deps.onOffline !== undefined && /连接未建立|连接已关闭|超时|网络|WebSocket/i.test(message)) {
+      return goOffline();
+    }
+    // 其它失败（权限、校验）确实发不出去：删占位，别让它假装发出去了
     deps.removeMessage(input.convId, localId);
-    deps.setError(err instanceof Error ? err.message : '发送失败');
+    deps.setError(message);
     return null;
   }
 }

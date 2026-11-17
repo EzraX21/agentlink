@@ -36,6 +36,8 @@ interface Props {
   highlightMessageId?: string | null;
   /** 打开会话时有多少条未读：在相应位置插一条"以下为新消息"分隔线。 */
   unreadOnOpen?: number;
+  /** 仍在离线发件箱里的本地消息 id（气泡上标"待发送"）。 */
+  pendingLocalIds?: ReadonlySet<string>;
   /** 窄屏时显示返回按钮（回到会话列表）。 */
   onBack?: () => void;
   /** 点标题 / 群信息按钮：查看（有权限则可改）群名与公告。 */
@@ -100,6 +102,7 @@ export function ChatWindow({
   canRevokeOthers,
   highlightMessageId,
   unreadOnOpen = 0,
+  pendingLocalIds,
   onBack,
   onOpenGroupInfo,
   canEditGroup = false,
@@ -287,6 +290,9 @@ export function ChatWindow({
     setDraft('');
     if (draftKey !== '') clearDraft(draftKey);
     setReplyTo(null);
+    // 自己发消息一律回到底部（TG 也是这个行为）：
+    // 否则用户在翻历史时发出一条，会因为虚拟滚动只渲染可见窗口而"看不到自己刚发的"。
+    scrollToBottom('smooth');
   }
 
   async function sendFiles(files: FileList | File[]): Promise<void> {
@@ -496,6 +502,7 @@ export function ChatWindow({
                       }
                       quote={item.quote}
                       highlighted={item.message.id === highlightMessageId}
+                      pending={pendingLocalIds?.has(item.message.id) === true}
                       onJumpToQuote={(id) => {
                         const idx = rows.findIndex(
                           (r) => r.kind === 'msg' && r.message.id === id,
