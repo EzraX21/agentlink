@@ -17,6 +17,8 @@ services:
       AGENT_TOKEN_PEPPER: ${AGENT_TOKEN_PEPPER:?AGENT_TOKEN_PEPPER 未设置（openssl rand -hex 16）}
       DATABASE_PATH: /data/agentlink.db
       UPLOADS_DIR: /data/uploads
+      # 单个附件上限：默认 20 MiB；0 = 不限制
+      MAX_ATTACHMENT_BYTES: ${MAX_ATTACHMENT_BYTES:-20971520}
       PUBLIC_DIR: /app/public
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # M11 插件钩子（可选）
