@@ -240,6 +240,190 @@ export async function agentRoutes(app: FastifyInstance, services: AppServices): 
   });
 
   // -------------------------------------------------------------------------
+  // 流式回复（复用同一个 StreamRegistry，所以节流与事件行为与 WS 完全一致）
+  // -------------------------------------------------------------------------
+  const streams = services.streams;
+
+  /** 建流：推 message.new（streaming, content=[]），与 WS 的 stream.begin 一致。 */
+  app.post('/api/agent/stream/begin', async (req, reply) => {
+    try {
+      const me = await who(req);
+      const body = req.body as { conv_id?: string; client_msg_id?: string; reply_to?: string } | null;
+      if (body === null || typeof body !== 'object' || body.conv_id === undefined) {
+        throw new AgentLinkError('VALIDATION_FAILED', '缺少 conv_id', {
+          issues: [{ path: 'conv_id', message: 'required' }],
+        });
+      }
+      services.limiter.assert(me.userId, 'stream_begin');
+      const res = streams.begin({
+        convId: body.conv_id,
+        senderId: me.userId,
+        clientMsgId:
+          body.client_msg_id ?? `http_stream_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        ...(body.reply_to === undefined ? {} : { replyTo: body.reply_to }),
+      });
+      if (res.rev === 0 && res.message.content.length === 0) {
+        services.hub.publish({
+          type: 'message.new',
+          seq: null,
+          convId: body.conv_id,
+          data: { conv_id: body.conv_id, mentions: [], message: res.message },
+        });
+      }
+      return reply.send({ message_id: res.messageId, conv_id: res.convId, rev: res.rev });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/api/agent/stream/delta', async (req, reply) => {
+    try {
+      const me = await who(req);
+      const body = req.body as { conv_id?: string; message_id?: string; delta?: string } | null;
+      if (body?.conv_id === undefined || body.message_id === undefined || typeof body.delta !== 'string') {
+        throw new AgentLinkError('VALIDATION_FAILED', '需要 conv_id / message_id / delta', {
+          issues: [{ path: 'delta', message: 'required' }],
+        });
+      }
+      services.limiter.assert(me.userId, 'stream_delta');
+      streams.appendDelta({
+        convId: body.conv_id,
+        messageId: body.message_id,
+        senderId: me.userId,
+        delta: body.delta,
+      });
+      return reply.send({ ok: true });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/api/agent/stream/commit', async (req, reply) => {
+    try {
+      const me = await who(req);
+      const body = req.body as { conv_id?: string; message_id?: string } | null;
+      if (body?.conv_id === undefined || body.message_id === undefined) {
+        throw new AgentLinkError('VALIDATION_FAILED', '需要 conv_id / message_id', {
+          issues: [{ path: 'conv_id', message: 'required' }],
+        });
+      }
+      const message = streams.commit({
+        convId: body.conv_id,
+        messageId: body.message_id,
+        senderId: me.userId,
+      });
+      return reply.send({ message });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  app.post('/api/agent/stream/abort', async (req, reply) => {
+    try {
+      const me = await who(req);
+      const body = req.body as { conv_id?: string; message_id?: string; reason?: string } | null;
+      if (body?.conv_id === undefined || body.message_id === undefined) {
+        throw new AgentLinkError('VALIDATION_FAILED', '需要 conv_id / message_id', {
+          issues: [{ path: 'conv_id', message: 'required' }],
+        });
+      }
+      const message = streams.abort({
+        convId: body.conv_id,
+        messageId: body.message_id,
+        senderId: me.userId,
+        ...(body.reason === undefined ? {} : { reason: body.reason }),
+      });
+      return reply.send({ message });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  /**
+   * 单请求流式回复：请求体是 NDJSON，每行 `{"delta":"..."}`。
+   *
+   * 这是给"边生成边发"的外部 agent 用的：一次 HTTP 调用完成
+   * begin → 多个 delta → commit，不必自己维护三步状态。
+   *
+   *   printf '{"delta":"你好"}\n{"delta":"，世界"}\n' | \
+   *     curl -N -X POST $URL/api/agent/stream \
+   *       -H "authorization: Bearer $TOKEN" \
+   *       -H 'content-type: application/x-ndjson' \
+   *       -H "x-agentlink-conv: $CONV" --data-binary @-
+   *
+   * 客户端提前断开（Ctrl-C / agent 崩了）时按 abort 收尾：空内容删除消息、
+   * 非空内容保留 —— 与 WS 断线时的处理一致。
+   */
+  app.post('/api/agent/stream', async (req, reply) => {
+    let convId = '';
+    let messageId: string | null = null;
+    let senderId = '';
+    let committed = false;
+    try {
+      const me = await who(req);
+      senderId = me.userId;
+      const headerConv = req.headers['x-agentlink-conv'];
+      convId = String(Array.isArray(headerConv) ? headerConv[0] : (headerConv ?? ''));
+      if (convId === '') {
+        throw new AgentLinkError('VALIDATION_FAILED', '缺少 x-agentlink-conv 头', {
+          issues: [{ path: 'x-agentlink-conv', message: 'required' }],
+        });
+      }
+      services.limiter.assert(me.userId, 'stream_begin');
+      const begun = streams.begin({
+        convId,
+        senderId: me.userId,
+        clientMsgId: `http_stream_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      });
+      messageId = begun.messageId;
+      services.hub.publish({
+        type: 'message.new',
+        seq: null,
+        convId,
+        data: { conv_id: convId, mentions: [], message: begun.message },
+      });
+
+      // 逐行读请求体；���行一个 delta
+      const body = req.body as AsyncIterable<Buffer> | undefined;
+      let buffer = '';
+      let deltas = 0;
+      if (body !== undefined && typeof (body as AsyncIterable<Buffer>)[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of body) {
+          buffer += chunk.toString('utf8');
+          let nl = buffer.indexOf('\n');
+          while (nl >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (line !== '') {
+              const parsed = JSON.parse(line) as { delta?: string };
+              if (typeof parsed.delta === 'string' && parsed.delta !== '') {
+                streams.appendDelta({ convId, messageId, senderId: me.userId, delta: parsed.delta });
+                deltas += 1;
+              }
+            }
+            nl = buffer.indexOf('\n');
+          }
+        }
+      }
+
+      // 提交（哪怕一个 delta 都没有：空内容会被 abort 语义删掉）
+      committed = true;
+      const message = streams.commit({ convId, messageId, senderId: me.userId });
+      return reply.send({ message, deltas });
+    } catch (err) {
+      // 中途失败/断连：按 abort 收尾，别留下永远 streaming 的僵尸消息
+      if (messageId !== null && !committed) {
+        try {
+          streams.abort({ convId, messageId, senderId });
+        } catch {
+          /* abort 失败就算了，至少返回错误 */
+        }
+      }
+      return sendError(reply, err);
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // 事件流：SSE（默认）或一次性批量（?once=1）
   // -------------------------------------------------------------------------
   app.get('/api/agent/events', async (req, reply: FastifyReply) => {
@@ -250,7 +434,11 @@ export async function agentRoutes(app: FastifyInstance, services: AppServices): 
       return sendError(reply, err);
     }
     const q = (req as FastifyRequest).query as { since?: string; once?: string };
-    const since = Number(q.since ?? 0) || 0;
+    // 标准 SSE 重连语义：浏览器/EventSource 会自动带上 Last-Event-ID。
+    // 显式 ?since= 优先（便于自研客户端自己控制断点）。
+    const lastEventIdHeader = (req as FastifyRequest).headers['last-event-id'];
+    const headerSince = Array.isArray(lastEventIdHeader) ? lastEventIdHeader[0] : lastEventIdHeader;
+    const since = Number(q.since ?? headerSince ?? 0) || 0;
 
     // 一次性批量：给 curl / shell 用（不需要处理长连接）
     if (q.once === '1') {

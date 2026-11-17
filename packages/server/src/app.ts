@@ -176,6 +176,12 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     await searchRoutes(instance, services);
 
     // 外部 agent 的 HTTP + SSE 接入面（docs/AGENT-INTEGRATION.md）
+    //
+    // NDJSON 的流式回复体要**边到边处理**，不能被 Fastify 缓冲成一个字符串，
+    // 所以这里注册一个把原始流原样交给 handler 的解析器。
+    instance.addContentTypeParser('application/x-ndjson', (_req, payload, done) => {
+      done(null, payload);
+    });
     await agentRoutes(instance, services);
   });
 

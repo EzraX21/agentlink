@@ -201,6 +201,90 @@ export async function run(ctx) {
   eq(outsider.status, 403, '非成员 → 403');
   eq(outsider.body.error.code, 'PERM_DENIED', '错误码 PERM_DENIED');
 
+  section('9b. 流式回复：三步显式（begin/delta/commit）');
+  const begin = await http('POST', '/api/agent/stream/begin', {
+    token: agentToken,
+    body: { conv_id: conv.id },
+  });
+  eq(begin.status, 200, 'begin 200');
+  const streamId = begin.body.message_id;
+  ok(typeof streamId === 'string', '拿到 message_id');
+
+  const d1 = await http('POST', '/api/agent/stream/delta', {
+    token: agentToken,
+    body: { conv_id: conv.id, message_id: streamId, delta: '逐字' },
+  });
+  eq(d1.status, 200, 'delta 200');
+  const d2 = await http('POST', '/api/agent/stream/delta', {
+    token: agentToken,
+    body: { conv_id: conv.id, message_id: streamId, delta: '生成中' },
+  });
+  eq(d2.status, 200, '第二个 delta 200');
+
+  // WS 侧应收到 message.update（瞬时，seq=null）
+  const upd = await ws.nextEvent('message.update');
+  eq(upd.data.message_id, streamId, 'WS 收到 message.update');
+  eq(upd.seq, null, 'message.update 是瞬时的（seq=null）');
+  ok(typeof upd.data.delta === 'string', '带增量文本');
+
+  const commit = await http('POST', '/api/agent/stream/commit', {
+    token: agentToken,
+    body: { conv_id: conv.id, message_id: streamId },
+  });
+  eq(commit.status, 200, 'commit 200');
+  eq(commit.body.message.content[0].text, '逐字生成中', '最终消息内容拼接正确');
+  const finalEvt = await ws.nextEvent('message.final');
+  eq(finalEvt.data.message.id, streamId, 'WS 收到 message.final');
+  gte(finalEvt.seq, 1, 'message.final 带 seq（已落库）');
+
+  const hist2 = await http('GET', `/api/agent/history?conv_id=${conv.id}&limit=10`, { token: agentToken });
+  ok(
+    hist2.body.messages.some((m) => m.id === streamId && m.state === 'final'),
+    '流式消息落库且状态为 final',
+  );
+
+  section('9c. 流式回复：单请求 NDJSON（边生成边发）');
+  const nd = await fetch(`${ctx.baseUrl}/api/agent/stream`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${agentToken}`,
+      'content-type': 'application/x-ndjson',
+      'x-agentlink-conv': conv.id,
+    },
+    body: '{"delta":"一次"}\n{"delta":"请求"}\n{"delta":"搞定"}\n',
+  });
+  eq(nd.status, 200, 'NDJSON 单请求 200');
+  const ndBody = await nd.json();
+  eq(ndBody.deltas, 3, '服务端处理了 3 个 delta');
+  eq(ndBody.message.content[0].text, '一次请求搞定', '内容按行拼接正确');
+  eq(ndBody.message.state, 'final', '已提交为 final');
+  gte(ndBody.message.seq, 1, '分配了真实 seq');
+
+  section('9d. SSE 的 Last-Event-ID（标准重连语义）');
+  const beforeResume = await http('GET', `/api/agent/events?since=0&once=1`, { token: agentToken });
+  const allEvents = beforeResume.body.events;
+  gte(allEvents.length, 2, `总共有 ${allEvents.length} 条事件`);
+  const cut = allEvents[0].seq;
+  const resumed = await fetch(`${ctx.baseUrl}/api/agent/events?once=1`, {
+    headers: { authorization: `Bearer ${agentToken}`, 'last-event-id': String(cut) },
+  });
+  const resumedBody = await resumed.json();
+  ok(
+    resumedBody.events.every((e) => e.seq > cut),
+    `带 Last-Event-ID=${cut} 时只返回其后的事件（${resumedBody.events.length} 条）`,
+  );
+  ok(
+    resumedBody.events.length < allEvents.length,
+    '确实跳过了已经收到过的事件',
+  );
+
+  section('9e. 流式权限：非成员不能建流');
+  const outsiderStream = await http('POST', '/api/agent/stream/begin', {
+    token: other.body.access_token,
+    body: { conv_id: conv.id },
+  });
+  eq(outsiderStream.status, 403, '非成员建流 → 403');
+
   section('10. 定位：服务端不接模型，示例也不强制接');
   {
     const { readFile: read } = await import('node:fs/promises');
