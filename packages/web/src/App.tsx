@@ -140,11 +140,15 @@ export function App(): React.JSX.Element {
       onEvent: (evt) => {
         handleEvent(evt);
         if (evt.type === 'message.new') {
-          const data = evt.data as { conv_id: string; message: { sender: { id: string } } };
+          const data = evt.data as { conv_id?: string; message?: { sender?: { id?: string } } };
+          const senderId = data.message?.sender?.id;
+          const convId = data.conv_id;
+          // 形状不对就跳过（回放的历史事件可能来自旧版本/外部工具）
+          if (senderId === undefined || convId === undefined) return;
           // 自己发的不算未读；当前打开的会话也不算
-          if (data.message.sender.id !== selfIdRef.current && data.conv_id !== activeConvRef.current) {
+          if (senderId !== selfIdRef.current && convId !== activeConvRef.current) {
             setUnread((prev) => {
-              const next = { ...prev, [data.conv_id]: (prev[data.conv_id] ?? 0) + 1 };
+              const next = { ...prev, [convId]: (prev[convId] ?? 0) + 1 };
               saveUnread(next);
               return next;
             });

@@ -33,6 +33,7 @@ export const MILESTONES = [
   'ui-media',
   'ui-ux',
   'ui-browser',
+  'perf',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

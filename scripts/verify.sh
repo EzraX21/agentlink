@@ -46,6 +46,9 @@ pnpm -r typecheck || fail "类型检查失败"
 step "3/4 单元测试（pnpm -r test）"
 pnpm -r test || fail "单元测试失败"
 
+# 说明：perf 是**按需测量**（真浏览器 + 帧率/长任务），不在默认门禁里 ——
+# 共享机器上一次偶发长任务会让主验收变红，那没有信息量。
+# 单独跑：node scripts/acceptance/run.mjs perf（结果写入 reports/perf.md）
 step "4/4 里程碑验收"
 if [ "$WITH_BROWSER" -ne 1 ]; then
   TARGETS="${TARGETS% ui-browser}"

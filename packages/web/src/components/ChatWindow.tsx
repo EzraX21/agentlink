@@ -262,13 +262,22 @@ export function ChatWindow({
     if (idx >= 0) virtualizer.scrollToIndex(idx, { align: 'center' });
   }, [highlightMessageId, rows, virtualizer]);
 
+  const loadMoreGuard = useRef(false);
+
   function onScroll(): void {
     const el = scrollRef.current;
     if (!el) return;
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     setAtBottom(bottom);
     if (bottom) setNewWhileScrolledUp(0);
-    if (el.scrollTop < 120 && hasMore && !loadingMore) onLoadMore();
+    // 加个 ref 闸门：滚动事件每帧都来，光靠 loadingMore 状态会重复触发请求
+    if (el.scrollTop < 120 && hasMore && !loadingMore && !loadMoreGuard.current) {
+      loadMoreGuard.current = true;
+      onLoadMore();
+      window.setTimeout(() => {
+        loadMoreGuard.current = false;
+      }, 400);
+    }
   }
 
   function submit(): void {

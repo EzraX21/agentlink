@@ -24,6 +24,7 @@
 | *补：附件 UI + 搜索 UI | ✅ | 2026-11-17 | `run.mjs ui-media` | 41 + 5 渲染测试 |
 | *补：引用回复/右键菜单/草稿/未读/置顶 | ✅ | 2026-11-17 | `run.mjs ui-ux` | 97 + 47 渲染测试 |
 | *补：**真浏览器 E2E** | ✅ | 2026-11-17 | `run.mjs ui-browser` | 25（Chromium headless） |
+| *补：**性能实测** | ✅ | 2026-11-17 | `run.mjs perf` | 20 + `reports/perf.md` |
 
 ## 六条验收标准
 

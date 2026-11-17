@@ -56,6 +56,20 @@ export interface ChatState {
   setError(msg: string | null): void;
 }
 
+/** 消息对象至少要能安全渲染（id / conv_id / sender.id / content 数组）。 */
+function isRenderableMessage(m: unknown): m is Message {
+  if (m === null || typeof m !== 'object') return false;
+  const x = m as Partial<Message>;
+  return (
+    typeof x.id === 'string' &&
+    typeof x.conv_id === 'string' &&
+    Array.isArray(x.content) &&
+    x.sender !== undefined &&
+    typeof x.sender === 'object' &&
+    typeof (x.sender as { id?: unknown }).id === 'string'
+  );
+}
+
 function sortBySeq(list: Message[]): Message[] {
   return [...list].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER));
 }
@@ -113,25 +127,64 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
     },
     prependMessages: (convId, messages) => {
       const existing = get().messages[convId] ?? [];
-      const merged = sortBySeq(dedupe([...messages, ...existing]));
+      const seen = new Set(existing.map((m) => m.id));
+      const fresh = messages.filter((m) => !seen.has(m.id));
+      if (fresh.length === 0) return;
+
+      // 上翻加载的都是在更前面的消息：如果新块的 seq 都比现有最小的小，直接拼接，
+      // 省掉对 1000+ 条的整体重排（这是"滚到顶触发加载"时的主要卡顿来源）。
+      const headSeq = existing[0]?.seq ?? Number.MAX_SAFE_INTEGER;
+      const freshMaxSeq = fresh[fresh.length - 1]?.seq ?? 0;
+      const inOrder = fresh.every(
+        (m, i) => i === 0 || (m.seq ?? 0) > (fresh[i - 1]?.seq ?? 0),
+      );
+      const merged =
+        inOrder && freshMaxSeq < headSeq
+          ? [...fresh, ...existing]
+          : sortBySeq(dedupe([...fresh, ...existing]));
       set({ messages: { ...get().messages, [convId]: merged.slice(-MAX_MESSAGES_PER_CONV) } });
     },
     addMessage: (msg) => {
       const existing = get().messages[msg.conv_id] ?? [];
-      if (existing.some((m) => m.id === msg.id)) return;
+      // 常见情况：新消息的 seq 比现有都大 → 直接追加，省掉一次 O(n log n) 排序。
+      // 1000 条消息时"每条消息都排一次序"是滚动卡顿的主要来源之一。
+      const last = existing[existing.length - 1];
+      const tailSeq = last?.seq ?? 0;
+      const msgSeq = msg.seq ?? Number.MAX_SAFE_INTEGER;
+
+      let next: Message[];
+      if (existing.length === 0 || msgSeq > tailSeq) {
+        if (existing.some((m) => m.id === msg.id)) return;
+        next = [...existing, msg];
+      } else {
+        if (existing.some((m) => m.id === msg.id)) return;
+        next = sortBySeq([...existing, msg]);
+      }
       set({
         messages: {
           ...get().messages,
-          [msg.conv_id]: sortBySeq([...existing, msg]).slice(-MAX_MESSAGES_PER_CONV),
+          [msg.conv_id]: next.slice(-MAX_MESSAGES_PER_CONV),
         },
       });
     },
     replaceMessage: (convId, msg) => {
       const existing = get().messages[convId] ?? [];
-      const next = existing.some((m) => m.id === msg.id)
-        ? existing.map((m) => (m.id === msg.id ? msg : m))
-        : [...existing, msg];
-      set({ messages: { ...get().messages, [convId]: sortBySeq(next) } });
+      if (existing.some((m) => m.id === msg.id)) {
+        // 原地替换：seq 不变，位置也不变，不需要重新排序
+        set({
+          messages: {
+            ...get().messages,
+            [convId]: existing.map((m) => (m.id === msg.id ? msg : m)),
+          },
+        });
+        return;
+      }
+      const last = existing[existing.length - 1];
+      const next =
+        last === undefined || (msg.seq ?? Number.MAX_SAFE_INTEGER) > (last.seq ?? 0)
+          ? [...existing, msg]
+          : sortBySeq([...existing, msg]);
+      set({ messages: { ...get().messages, [convId]: next.slice(-MAX_MESSAGES_PER_CONV) } });
     },
     removeMessage: (convId, messageId) => {
       const existing = get().messages[convId] ?? [];
@@ -181,12 +234,22 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
     setConnected: (connected) => set({ connected }),
     setError: (lastError) => set({ lastError }),
 
-    /** 所有实时事件的唯一入口（未知 type 静默忽略，协议 §6）。 */
+    /**
+     * 所有实时事件的唯一入口（未知 type 静默忽略，协议 §6）。
+     *
+     * 额外做一层形状防御：`resume` 回放的是历史事件，只要有一条 payload 不符合
+     * 预期（旧版本写入、外部工具灌的数据、将来加字段前的旧行），
+     * 直接读 `data.message.sender.id` 会让整个聊天页白屏。
+     * 宁可丢一条事件，也不能让 UI 崩。
+     */
     handleEvent: (evt) => {
+      if (evt === null || typeof evt !== 'object' || typeof evt.type !== 'string') return;
+      if (evt.data === null || typeof evt.data !== 'object') return;
       const store = get();
       switch (evt.type) {
         case 'message.new': {
           const data = evt.data as { conv_id: string; message: Message };
+          if (!isRenderableMessage(data.message)) return;
           store.addMessage(data.message);
           if (data.message.state === 'streaming') {
             store.setStreamingText(data.conv_id, data.message.id, '', 0);
@@ -205,6 +268,7 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         }
         case 'message.final': {
           const data = evt.data as { conv_id: string; message: Message };
+          if (!isRenderableMessage(data.message)) return;
           store.replaceMessage(data.conv_id, data.message);
           store.clearStreaming(data.message.id);
           break;
@@ -217,6 +281,7 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         }
         case 'member.join': {
           const data = evt.data as { conv_id: string; member: Member };
+          if (data.member === undefined || typeof data.member.user_id !== 'string') return;
           store.upsertMember(data.conv_id, data.member);
           break;
         }
@@ -227,6 +292,7 @@ export function createChatStore(set: (partial: Partial<ChatState>) => void, get:
         }
         case 'member.update': {
           const data = evt.data as { conv_id: string; member: Member };
+          if (data.member === undefined || typeof data.member.user_id !== 'string') return;
           store.upsertMember(data.conv_id, data.member);
           break;
         }

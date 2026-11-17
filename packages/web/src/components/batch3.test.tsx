@@ -167,6 +167,44 @@ describe('会话内搜索', () => {
   });
 });
 
+describe('畸形事件防御（resume 回放的历史数据可能不完整）', () => {
+  it('message.new 里 message 缺 sender 时不崩，且不渲染', async () => {
+    const { createChatStore } = await import('../lib/store.js');
+    let state = createChatStore(
+      (p) => {
+        state = { ...state, ...p };
+      },
+      () => state,
+    );
+    const store = state;
+
+    expect(() => {
+      store.handleEvent({
+        v: 1,
+        kind: 'evt',
+        type: 'message.new',
+        seq: 1,
+        ts: 1,
+        data: { conv_id: 'c1', message: { id: 'm1', conv_id: 'c1', content: [] } },
+      } as never);
+    }).not.toThrow();
+    expect(store.messages['c1'] ?? []).toHaveLength(0);
+  });
+
+  it('data 为 null 或 evt.type 不是字符串时直接忽略', async () => {
+    const { createChatStore } = await import('../lib/store.js');
+    let state = createChatStore(
+      (p) => {
+        state = { ...state, ...p };
+      },
+      () => state,
+    );
+    const store = state;
+    expect(() => store.handleEvent({ v: 1, kind: 'evt', type: 'message.new', data: null } as never)).not.toThrow();
+    expect(() => store.handleEvent({ v: 1, kind: 'evt', type: 123, data: {} } as never)).not.toThrow();
+  });
+});
+
 describe('上传进度', () => {
   it('上传过程中显示百分比，完成后消失', async () => {
     let report: ((p: number | null) => void) | undefined;
