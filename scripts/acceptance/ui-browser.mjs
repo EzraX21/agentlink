@@ -216,6 +216,44 @@ export async function run(ctx) {
     ok(imgInfo !== null && imgInfo.w > 0, `图片真的解码出来了（${imgInfo?.w}×${imgInfo?.h}）`);
     await page.screenshot({ path: path.join(SHOT_DIR, '05-image.png') });
 
+    section('5b. 媒体预览与群公告弹窗是同一套外观');
+    {
+      // 打开图片预览
+      await page.locator('img[src^="blob:"]').first().click();
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+      const media = await page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]');
+        const card = dlg?.querySelector('.al-card') ?? dlg;
+        const backdrop = dlg?.parentElement;
+        return {
+          hasCard: dlg?.querySelector('.al-card') !== null || dlg?.classList.contains('al-card'),
+          cardRadius: card === null ? '' : getComputedStyle(card).borderRadius,
+          backdrop: backdrop === null || backdrop === undefined ? '' : getComputedStyle(backdrop).backgroundColor,
+        };
+      });
+      ok(media.hasCard, '预览用的是 .al-card 卡片（与群公告同一个外壳）');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
+
+      // 打开群公告/群信息对话框
+      await page.click('button[title*="群信息"]');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+      const info = await page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]');
+        const card = dlg?.querySelector('.al-card') ?? dlg;
+        const backdrop = dlg?.parentElement;
+        return {
+          cardRadius: card === null ? '' : getComputedStyle(card).borderRadius,
+          backdrop: backdrop === null || backdrop === undefined ? '' : getComputedStyle(backdrop).backgroundColor,
+        };
+      });
+      eq(media.cardRadius, info.cardRadius, `圆角一致（${media.cardRadius}）`);
+      eq(media.backdrop, info.backdrop, `遮罩颜色一致（${media.backdrop}）`);
+      await page.screenshot({ path: path.join(SHOT_DIR, '05c-group-info.png') });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
+    }
+
     section('6. 搜索（Ctrl+K → 命中高亮）');
     await page.keyboard.press('Control+k');
     await page.waitForSelector('input[placeholder*="搜索消息"]', { timeout: 5000 });

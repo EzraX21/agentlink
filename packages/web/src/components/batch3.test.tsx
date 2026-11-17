@@ -208,15 +208,18 @@ describe('畸形事件防御（resume 回放的历史数据可能不完整）', 
 describe('上传进度', () => {
   it('上传过程中显示百分比，完成后消失', async () => {
     let report: ((p: number | null) => void) | undefined;
+    // 不靠 setTimeout 制造"中间态"：由测试自己决定何时结束。
+    // 之前用 50ms 定时器，机器负载高时 42% 还没断言完 promise 就 resolve 了，
+    // 于是"结束后消失"这条会随机红 —— 时序依赖是测试不稳的根源。
+    let finish: (() => void) | undefined;
     const onSendAttachment = vi.fn(
       (_file: File, _reply?: string, onProgress?: (p: number | null) => void) =>
         new Promise<void>((resolve) => {
           report = onProgress;
-          // 用 setTimeout 让测试有机会观察到中间态
-          setTimeout(() => {
+          finish = () => {
             onProgress?.(100);
             resolve();
-          }, 50);
+          };
         }),
     );
 
@@ -231,6 +234,7 @@ describe('上传进度', () => {
     report?.(42);
     await waitFor(() => expect(screen.getByText('42%')).toBeTruthy());
     // 结束后进度条消失
+    finish?.();
     await waitFor(() => expect(screen.queryByText(/\d+%/)).toBeNull(), { timeout: 2000 });
   });
 });

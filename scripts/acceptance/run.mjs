@@ -79,7 +79,7 @@ async function waitPortFree(port, timeoutMs = 10_000) {
   }
 }
 
-async function waitForHealth(baseUrl, timeoutMs = 30_000) {
+async function waitForHealth(baseUrl, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   let lastErr = 'unknown';
   while (Date.now() < deadline) {

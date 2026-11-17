@@ -116,7 +116,7 @@ export function ImageBlockView({
           <img
             src={url}
             alt={filename ?? '图片'}
-            style={{ maxWidth: '92vw', maxHeight: '82vh', borderRadius: 6 }}
+            style={{ maxWidth: '100%', maxHeight: '68vh', borderRadius: 6 }}
             onMouseDown={(e) => e.stopPropagation()}
           />
         </MediaViewer>
@@ -211,7 +211,7 @@ export function VideoBlockView({
             src={preview.url}
             controls
             autoPlay
-            style={{ maxWidth: '92vw', maxHeight: '82vh', borderRadius: 6 }}
+            style={{ maxWidth: '100%', maxHeight: '68vh', borderRadius: 6 }}
             onMouseDown={(e) => e.stopPropagation()}
           />
         </MediaViewer>
