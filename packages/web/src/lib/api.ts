@@ -1,4 +1,4 @@
-import type { Conversation, Member, Message } from '@agentlink/protocol';
+import type { Conversation, Member, Message, SearchHit } from '@agentlink/protocol';
 
 /**
  * HTTP 控制面（协议 §1：登录、历史、搜索、上传走 HTTP）。
@@ -165,6 +165,24 @@ export const api = {
       'POST',
       `/api/admin/agents/${id}/rotate-token`,
     ),
+
+  /** 检索（协议 §5.7 的 search.messages 走 WS，但历史/搜索也在 HTTP 控制面上提供一份更省事的入口）。 */
+  search: (query: {
+    q: string;
+    convId?: string;
+    fromUserId?: string;
+    before?: number;
+    after?: number;
+    limit?: number;
+  }) => {
+    const params = new URLSearchParams({ q: query.q });
+    if (query.convId !== undefined) params.set('conv_id', query.convId);
+    if (query.fromUserId !== undefined) params.set('from_user_id', query.fromUserId);
+    if (query.before !== undefined) params.set('before', String(query.before));
+    if (query.after !== undefined) params.set('after', String(query.after));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    return req<{ hits: SearchHit[] }>('GET', `/api/search?${params.toString()}`);
+  },
 
   convs: () => req<{ items: AdminConv[] }>('GET', '/api/admin/convs'),
 

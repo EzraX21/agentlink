@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Conversation, Member, Message } from '@agentlink/protocol';
 import { CreateGroupDialog } from './components/CreateGroupDialog.js';
+import { SearchPanel } from './components/SearchPanel.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { adminPath, navigate, useRoute } from './lib/router.js';
 import { ChatWindow } from './components/ChatWindow.js';
@@ -11,6 +12,7 @@ import { ProtocolClient, clearTokens, loadTokens } from './lib/client.js';
 import { useChat } from './lib/useChat.js';
 import { uuid } from './lib/format.js';
 import { sendText } from './lib/sendText.js';
+import { guessMimeFromName, isImageMime, uploadAttachment } from './lib/attachments.js';
 
 const PAGE_SIZE = 50;
 
@@ -23,6 +25,7 @@ function wsUrl(): string {
 export function App(): React.JSX.Element {
   const [authed, setAuthed] = useState<boolean>(loadTokens().access !== null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showMembers, setShowMembers] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const route = useRoute();
@@ -230,6 +233,79 @@ export function App(): React.JSX.Element {
     [activeConvId, self, replaceMessage, removeMessage, setError],
   );
 
+  /**
+   * 上传一个文件并发成消息。
+   *
+   * 协议 §5.3 的 content 是块数组：图片用 image 块（带 attachment_id），
+   * 其余用 file 块（带 filename/size 便于客户端直接展示，不用再查元信息）。
+   */
+  const sendAttachment = useCallback(
+    async (file: File) => {
+      const client = clientRef.current;
+      if (client === null || activeConvId === null) return;
+
+      const uploaded = await uploadAttachment(file);
+      const mime = uploaded.mime || guessMimeFromName(file.name);
+      const content = isImageMime(mime)
+        ? [{ type: 'image' as const, attachment_id: uploaded.attachment_id }]
+        : [
+            {
+              type: 'file' as const,
+              attachment_id: uploaded.attachment_id,
+              filename: uploaded.filename,
+              size: uploaded.size,
+            },
+          ];
+
+      const res = await client.call<{ message_id: string; seq: number; created_at: number }>(
+        'message.send',
+        { conv_id: activeConvId, client_msg_id: uuid(), content },
+      );
+      // 服务端也会推 message.new；这里按 id 幂等放入，避免等待推送造成的延迟感
+      replaceMessage(activeConvId, {
+        id: res.message_id,
+        conv_id: activeConvId,
+        seq: res.seq,
+        sender: self ?? { id: '', kind: 'human', display_name: '我' },
+        content,
+        reply_to: null,
+        state: 'final',
+        interrupted: false,
+        created_at: res.created_at,
+        revoked_at: null,
+      });
+    },
+    [activeConvId, self, replaceMessage],
+  );
+
+  /**
+   * 跳到某条搜索结果：切会话，并把历史拉到那条消息（含）为止。
+   * 协议 §5.3 的 history.fetch 用 before_seq 分页，所以取 seq+1 作为游标即可覆盖。
+   */
+  const jumpToMessage = useCallback(
+    (convId: string, messageId: string, seq: number) => {
+      setShowSearch(false);
+      setActiveConv(convId);
+      const client = clientRef.current;
+      if (client === null) return;
+      void (async () => {
+        try {
+          const page = await client.call<{ messages: Message[]; has_more: boolean }>(
+            'history.fetch',
+            { conv_id: convId, before_seq: seq + 1, limit: PAGE_SIZE },
+          );
+          setMessages(convId, [...page.messages].reverse());
+          setHasMore((prev) => ({ ...prev, [convId]: page.has_more }));
+          // 把目标消息标记出来，滚动由 ChatWindow 处理"到底"行为
+          void messageId;
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '跳转失败');
+        }
+      })();
+    },
+    [setActiveConv, setMessages, setError],
+  );
+
   const revoke = useCallback(
     (messageId: string) => {
       const client = clientRef.current;
@@ -325,15 +401,22 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="flex h-full">
-      <ConversationList
-        convs={convs}
-        activeConvId={activeConvId}
-        messages={messages}
-        onSelect={setActiveConv}
-        onNewGroup={() => setShowCreateDialog(true)}
-        selfName={self?.display_name ?? '…'}
-        onLogout={logout}
-      />
+      {showSearch ? (
+        <div className="w-[300px] shrink-0">
+          <SearchPanel onPick={jumpToMessage} onClose={() => setShowSearch(false)} />
+        </div>
+      ) : (
+        <ConversationList
+          convs={convs}
+          activeConvId={activeConvId}
+          messages={messages}
+          onSelect={setActiveConv}
+          onNewGroup={() => setShowCreateDialog(true)}
+          selfName={self?.display_name ?? '…'}
+          onLogout={logout}
+          onOpenSearch={() => setShowSearch(true)}
+        />
+      )}
 
       {activeConv === null ? (
         <div className="al-chat-bg grid flex-1 place-items-center">
@@ -347,6 +430,7 @@ export function App(): React.JSX.Element {
           selfId={self?.id ?? ''}
           members={activeMembers}
           onSend={send}
+          onSendAttachment={sendAttachment}
           onRevoke={revoke}
           onInterrupt={interrupt}
           onLoadMore={loadMore}

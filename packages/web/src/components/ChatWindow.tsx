@@ -1,4 +1,4 @@
-import type { Member, Message } from '@agentlink/protocol';
+import type { Content, Member, Message } from '@agentlink/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageBubble } from './MessageBubble.js';
@@ -10,6 +10,8 @@ interface Props {
   selfId: string;
   members: Member[];
   onSend: (text: string) => void;
+  /** 上传附件并作为消息发出（发送方由 App 负责，组件只负责选文件/拖拽/粘贴）。 */
+  onSendAttachment: (file: File) => Promise<void>;
   onRevoke: (messageId: string) => void;
   onInterrupt: (messageId: string) => void;
   onLoadMore: () => void;
@@ -26,6 +28,7 @@ interface Props {
  */
 export function ChatWindow({
   convTitle,
+  onSendAttachment,
   messages,
   streaming,
   selfId,
@@ -42,6 +45,26 @@ export function ChatWindow({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
   const [atBottom, setAtBottom] = useState(true);
+  const [uploading, setUploading] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function sendFiles(files: FileList | File[]): Promise<void> {
+    const list = [...files];
+    if (list.length === 0) return;
+    setUploadError(null);
+    for (const file of list) {
+      setUploading((n) => n + 1);
+      try {
+        await onSendAttachment(file);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : '附件发送失败');
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  }
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -146,11 +169,52 @@ export function ChatWindow({
         </div>
       </div>
 
-      <footer className="px-3 py-2.5" style={{ borderTop: '1px solid var(--al-border)' }}>
+      <footer
+        className="px-3 py-2.5"
+        style={{
+          borderTop: '1px solid var(--al-border)',
+          background: dragging ? 'var(--al-bg-hover)' : undefined,
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          if (e.dataTransfer.files.length > 0) {
+            e.preventDefault();
+            setDragging(false);
+            void sendFiles(e.dataTransfer.files);
+          }
+        }}
+      >
+        {uploadError !== null && (
+          <div className="mb-1 text-[11px]" style={{ color: 'var(--al-danger)' }}>
+            {uploadError}
+          </div>
+        )}
+        {dragging && <div className="al-muted mb-1 text-[11px]">松手即发送</div>}
         <div className="flex items-end gap-2">
-          <button className="al-btn-ghost" title="附件（M7）" disabled>
-            📎
+          <button
+            className="al-btn-ghost"
+            title="附件（点击选择，也可以拖进来或直接粘贴）"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading > 0}
+          >
+            {uploading > 0 ? '⏳' : '📎'}
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files !== null) void sendFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
           <textarea
             className="al-input resize-none"
             rows={1}
@@ -164,6 +228,13 @@ export function ChatWindow({
               }
             }}
             style={{ maxHeight: 140 }}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files];
+              if (files.length > 0) {
+                e.preventDefault();
+                void sendFiles(files);
+              }
+            }}
           />
           <button className="al-btn" onClick={submit} disabled={draft.trim() === ''}>
             发送

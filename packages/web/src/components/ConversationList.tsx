@@ -9,6 +9,8 @@ interface Props {
   onNewGroup: () => void;
   selfName: string;
   onLogout: () => void;
+  /** 打开全局搜索面板。 */
+  onOpenSearch: () => void;
 }
 
 /** 左侧会话列表（需求确认书 §10.3：左侧会话列表 + 右侧聊天窗）。 */
@@ -20,6 +22,7 @@ export function ConversationList({
   onNewGroup,
   selfName,
   onLogout,
+  onOpenSearch,
 }: Props): React.JSX.Element {
   return (
     <aside className="al-sidebar flex w-[300px] flex-col">
@@ -27,7 +30,13 @@ export function ConversationList({
         <button className="al-btn-ghost" onClick={onNewGroup} title="建群">
           ＋
         </button>
-        <input className="al-input" placeholder="搜索（M8 接检索）" disabled style={{ opacity: 0.6 }} />
+        <input
+          className="al-input cursor-pointer"
+          placeholder="搜索消息"
+          readOnly
+          onClick={onOpenSearch}
+          onFocus={onOpenSearch}
+        />
       </header>
 
       <div className="flex-1 overflow-y-auto py-1">

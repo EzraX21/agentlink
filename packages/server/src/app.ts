@@ -7,6 +7,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { registerStatic } from './routes/static.js';
 import { attachmentRoutes } from './routes/attachments.js';
+import { searchRoutes } from './routes/search.js';
 import { WsGateway, type Connection } from './ws/gateway.js';
 import { openDatabase, type OpenedDb } from './db/index.js';
 import { AuthService } from './auth/service.js';
@@ -166,6 +167,9 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   });
   await app.register(async (instance) => {
     await attachmentRoutes(instance, services);
+  });
+  await app.register(async (instance) => {
+    await searchRoutes(instance, services);
   });
 
   await registerStatic(app, config.publicDir);

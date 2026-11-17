@@ -43,9 +43,9 @@ pnpm -r test || fail "单元测试失败"
 
 step "4/4 里程碑验收"
 if [ "$WITH_DOCKER" -eq 1 ]; then
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media"
 else
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media"
   echo "（已跳过 m10：--no-docker）"
 fi
 

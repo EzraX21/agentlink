@@ -115,7 +115,10 @@ export function searchMessages(db: Db, input: SearchInput): { hits: SearchHit[] 
   }
 
   // ---- 路径 2：CJK / 任意子串 ----
-  // instr() 做子串定位，substr() 取前后各约 40 字符，命中词包 <mark>。
+  // 用 CTE 先算出命中位置 p，再拼片段：
+  //   …前文 | <mark>命中</mark> | 后文…
+  // 前缀长度必须是 `p - start`（截到命中点为止），不能写死 40 ——
+  // 否则命中靠前时会把正文重复一遍（这个 bug 实测出现过）。
   const before = EXCERPT_RADIUS;
   const after = EXCERPT_RADIUS;
   const rows2 = db.all<{
@@ -126,21 +129,23 @@ export function searchMessages(db: Db, input: SearchInput): { hits: SearchHit[] 
     created_at: number;
     excerpt: string;
   }>(sql`
-    SELECT m.id, m.conv_id, m.seq, m.sender_id, m.created_at,
-           (CASE WHEN instr(m.text_plain, ${q}) > 0 THEN
-             (CASE WHEN instr(m.text_plain, ${q}) > ${before + 1} THEN '…' ELSE '' END)
-             || substr(m.text_plain, max(1, instr(m.text_plain, ${q}) - ${before}),
-                       ${before})
-             || '<mark>' || ${q} || '</mark>'
-             || substr(m.text_plain, instr(m.text_plain, ${q}) + length(${q}), ${after})
-             || (CASE WHEN instr(m.text_plain, ${q}) + length(${q}) + ${after} <= length(m.text_plain)
-                      THEN '…' ELSE '' END)
-           ELSE substr(m.text_plain, 1, ${before * 2}) END) AS excerpt
-    FROM messages m
-    WHERE instr(m.text_plain, ${q}) > 0
-    ${filters}
-    ORDER BY m.seq DESC
-    LIMIT ${limit}
+    WITH hit AS (
+      SELECT m.id, m.conv_id, m.seq, m.sender_id, m.created_at,
+             m.text_plain AS body,
+             instr(m.text_plain, ${q}) AS p
+      FROM messages m
+      WHERE instr(m.text_plain, ${q}) > 0
+      ${filters}
+      ORDER BY m.seq DESC
+      LIMIT ${limit}
+    )
+    SELECT id, conv_id, seq, sender_id, created_at,
+           (CASE WHEN p > ${before + 1} THEN '…' ELSE '' END)
+           || substr(body, max(1, p - ${before}), p - max(1, p - ${before}))
+           || '<mark>' || ${q} || '</mark>'
+           || substr(body, p + length(${q}), ${after})
+           || (CASE WHEN p + length(${q}) + ${after} <= length(body) THEN '…' ELSE '' END) AS excerpt
+    FROM hit
   `);
 
   for (const r of rows2) {

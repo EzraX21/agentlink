@@ -1,5 +1,6 @@
-import type { Message } from '@agentlink/protocol';
+import type { ContentBlock, Message } from '@agentlink/protocol';
 import { avatarColor, formatTime, initials } from '../lib/format.js';
+import { FileBlockView, ImageBlockView } from './AttachmentBlocks.js';
 
 interface Props {
   message: Message;
@@ -28,9 +29,10 @@ export function MessageBubble({
 }: Props): React.JSX.Element {
   const revoked = message.state === 'revoked';
   const streaming = message.state === 'streaming';
-  const text = streaming
-    ? (streamingText ?? message.content.map((b) => (b.type === 'text' ? b.text : '')).join(''))
-    : message.content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('');
+  // 流式消息只有文本；终态消息按块渲染（文本 / 图片 / 文件）
+  const streamingTextOnly =
+    streamingText ?? message.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+  const blocks: ContentBlock[] = message.content;
 
   return (
     <div className={`flex gap-2 px-4 py-1 ${isSelf ? 'flex-row-reverse' : ''}`}>
@@ -59,8 +61,35 @@ export function MessageBubble({
         <div className={`al-bubble ${isSelf ? 'al-bubble-self' : 'al-bubble-other'}`}>
           {revoked ? (
             <span className="al-muted italic">消息已撤回</span>
+          ) : streaming ? (
+            <span className="al-streaming">{streamingTextOnly}</span>
           ) : (
-            <span className={streaming ? 'al-streaming' : ''}>{text}</span>
+            <div className="flex flex-col gap-1.5">
+              {blocks.map((block, i) => {
+                if (block.type === 'text') {
+                  return <span key={i}>{block.text}</span>;
+                }
+                if (block.type === 'image') {
+                  return (
+                    <ImageBlockView
+                      key={i}
+                      attachmentId={block.attachment_id}
+                      filename={undefined}
+                      width={block.width}
+                      height={block.height}
+                    />
+                  );
+                }
+                return (
+                  <FileBlockView
+                    key={i}
+                    attachmentId={block.attachment_id}
+                    filename={block.filename}
+                    size={block.size}
+                  />
+                );
+              })}
+            </div>
           )}
           <span className="al-muted ml-2 align-bottom text-[11px]">
             {formatTime(message.created_at)}

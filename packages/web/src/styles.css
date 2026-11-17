@@ -184,7 +184,14 @@ body {
     font-size: 15px;
     user-select: none;
   }
-  .al-streaming::after {
+  .al-mark {
+  background: var(--al-primary);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.al-streaming::after {
     content: '▍';
     animation: al-blink 1s steps(2, start) infinite;
     opacity: 0.7;

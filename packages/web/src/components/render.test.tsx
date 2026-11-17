@@ -68,6 +68,7 @@ describe('渲染冒烟', () => {
         onNewGroup={() => {}}
         selfName="我"
         onLogout={() => {}}
+        onOpenSearch={() => {}}
       />,
     );
     expect(screen.getByText('测试群')).toBeTruthy();
@@ -83,6 +84,7 @@ describe('渲染冒烟', () => {
         selfId="u_a"
         members={[member('u_a', '我', 'owner'), member('u_b', '助手')]}
         onSend={() => {}}
+        onSendAttachment={async () => {}}
         onRevoke={() => {}}
         onInterrupt={() => {}}
         onLoadMore={() => {}}
@@ -109,6 +111,7 @@ describe('渲染冒烟', () => {
         selfId="u_a"
         members={[member('u_a', '我', 'owner')]}
         onSend={() => {}}
+        onSendAttachment={async () => {}}
         onRevoke={() => {}}
         onInterrupt={() => {}}
         onLoadMore={() => {}}
