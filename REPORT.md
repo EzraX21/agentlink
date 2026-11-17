@@ -49,6 +49,9 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 | `ui-browser` | **真 Chromium** 端到端：登录/发消息/流式/上传/搜索/管理页/窄屏/断线重连/离线队列 | 37 |
 | `perf` | 1000 条消息的帧率与长任务 → `reports/perf.md` | 18 |
 | `visual` | 8 张关键页截图像素回归 + 深色亮度客观校验 | 10 |
+| `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` | 协议扩展 6 项 | 18 / 28 / 30 / 29 / 22 / 24 |
+| `agent-http` | 外部 agent 的 HTTP + SSE 接入面 | 67 |
+| `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
 
 ## 3. 六条验收标准的落点
 
@@ -73,13 +76,33 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 
 | 缺口 | 原因 | 怎么办 |
 |---|---|---|
-| 「对方正在输入」**服务端**未实现 | 协议 §6 有 `typing` 事件、§5 没有触发它的 op | 提案第 1 节，客户端已就绪，加 op 即生效 |
-| 表情回应 / 编辑消息 / 置顶消息 / 已读回执 / 转发 | 同上：都需新增 op/evt | 提案第 2–6 节，含迁移与验收 |
+| ~~正在输入 / 回应 / 编辑 / 置顶 / 已读 / 转发~~ | 需新增 op/evt，施工守则 §6.3 要求先问用户 | **已获批准并全部落地**（见下"协议扩展"一节） |
 | 像素级视觉回归跨机器 | 基线按机器（字体抗锯齿不同） | 换机器 `UPDATE_BASELINES=1` 重建 |
 | `examples/llm-agent` 的真实 LLM 调用 | 需要外部 API key | 未配置时退化回显，链路可验 |
 | 端到端加密 / 音视频 / 移动端 App / 多语言 | 规格明确不做 | 若要做需改需求 |
 
-**唯一挡着验收标准的一条**：M6 验收第 2 条（typing）。其余五条都已通过。
+**六条验收标准现已全部通过**（M6 第 2 条随 `typing.send` 落地）。
+
+## 5b. 协议扩展（用户批准后新增）
+
+| 扩展 | op | 事件 | 迁移 | 验收 |
+|---|---|---|---|---|
+| 正在输入 | `typing.send` | `typing`（瞬时） | — | `ext-typing` 18 |
+| 已读回执 | `read.set` | `read.update`（瞬时） | 0004 | `ext-read` 28 |
+| 表情回应 | `reaction.add/remove` | `message.reaction`（带 seq） | 0005 | `ext-reaction` 30 |
+| 编辑消息 | `message.edit` | `message.edit`（带 seq） | 0006 | `ext-edit` 29 |
+| 置顶消息 | `message.pin/unpin` | `message.pin`（带 seq） | 0007 | `ext-pin` 22 |
+| 转发 | `message.forward` | 复用 `message.new` | — | `ext-forward` 24 |
+
+设计要点：瞬时 vs 持久化事件严格区分（打字/已读不落库，回应/编辑/置顶可补发）；
+转发不新增事件；附件随 `attachment_id` 跨会话，权限按"引用它的群"判定。
+
+## 5c. 外部 agent 接入（HTTP + SSE，不接模型）
+
+AgentLink 只提供消息通道，智能在调用方。`/api/agent/*` 覆盖：
+self / convs / history / messages（幂等）/ attachments / typing / stream（NDJSON 流式）/
+events（SSE + Last-Event-ID）。文档 `docs/AGENT-INTEGRATION.md`，
+零模型依赖示例 `examples/http-agent`。验收套件 `agent-http`（67 项）。
 
 ## 6. 决策与坑的记录
 
