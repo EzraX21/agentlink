@@ -20,7 +20,7 @@ node scripts/acceptance/run.mjs perf     # 性能实测 → reports/perf.md
 node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 ```
 
-最近一次全量：**16 个套件全绿，exit 0**；web 单测 **101 项**。
+最近一次全量：**25 个套件全绿，exit 0**；web 单测 **138 项**；协议单测 27 项（32 个 op）。
 
 ## 2. 里程碑与验收证据
 
@@ -51,6 +51,7 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 | `visual` | 8 张关键页截图像素回归 + 深色亮度客观校验 | 10 |
 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` | 协议扩展 6 项 | 18 / 28 / 30 / 29 / 22 / 24 |
 | `agent-http` | 外部 agent 的 HTTP + SSE 接入面 | 67 |
+| `mcp` | MCP server（真 stdio JSON-RPC 子进程） | 38 |
 | `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
 
 ## 3. 六条验收标准的落点
@@ -97,16 +98,22 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 设计要点：瞬时 vs 持久化事件严格区分（打字/已读不落库，回应/编辑/置顶可补发）；
 转发不新增事件；附件随 `attachment_id` 跨会话，权限按"引用它的群"判定。
 
-## 5c. 外部 agent 接入（HTTP + SSE，不接模型）
+## 5c. 外部 agent 接入（三种方式，都不接模型）
 
-AgentLink 只提供消息通道，智能在调用方。`/api/agent/*` 覆盖：
-self / convs / history / messages（幂等）/ attachments / typing / stream（NDJSON 流式）/
-events（SSE + Last-Event-ID）。文档 `docs/AGENT-INTEGRATION.md`，
-零模型依赖示例 `examples/http-agent`。验收套件 `agent-http`（67 项）。
+AgentLink 只提供消息通道，智能在调用方：
+
+| 方式 | 入口 | 验收 |
+|---|---|---|
+| **MCP server**（stdio，9 个工具） | `packages/mcp` | `mcp`（38 项） |
+| **HTTP + SSE** | `/api/agent/*`：self / convs / history / messages（幂等）/ attachments / typing / stream（NDJSON 流式）/ events（SSE + Last-Event-ID） | `agent-http`（67 项） |
+| **WebSocket SDK** | `@agentlink/agent-sdk` | `m9`（37 项） |
+
+文档 `docs/AGENT-INTEGRATION.md`；零模型依赖示例 `examples/http-agent`。
 
 ## 6. 决策与坑的记录
 
 - `docs/DECISIONS.md`：FTS 触发器损坏、中文检索双路径、附件鉴权与 `<img>` 冲突、
-  搜索 excerpt XSS、`group.update` 不推事件、离线队列与幂等键、视觉基线判真等。
+  搜索 excerpt XSS、`group.update` 不推事件、离线队列与幂等键、视觉基线判真、
+  协议扩展 6 项各自的事件语义取舍（瞬时 vs 持久化）、MCP 的订阅默认值等。
 - `docs/PROPOSAL-protocol-ext.md`：协议扩展提案（待审批，含 5 个待你拍板的问题）。
 - `docs/PROGRESS.md`：里程碑与套件的验收矩阵。

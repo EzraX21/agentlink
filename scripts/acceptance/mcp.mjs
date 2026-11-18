@@ -243,6 +243,118 @@ export async function run(ctx) {
 
     section('10. stdout 只有 JSON-RPC（不能被日志污染）');
     eq(mcp.badLines.length, 0, `stdout 里没有非 JSON 行${mcp.badLines[0] ? `：${mcp.badLines[0]}` : ''}`);
+
+    section('11. HTTP 传输（远程客户端用）');
+    {
+      // 起一个带 HTTP 端口的实例（stdio 同时可用）。
+      // 注意：**不要** import './run.mjs' 来找空闲端口 —— 那会重新执行整个验收 CLI。
+      const port = 38000 + Math.floor(Math.random() * 2000);
+      const httpInstance = spawn(process.execPath, [bin], {
+        env: { ...process.env, AGENTLINK_URL: wsUrl, AGENTLINK_TOKEN: agentToken, AGENTLINK_MCP_HTTP_PORT: String(port) },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let started = false;
+      for (let i = 0; i < 60; i += 1) {
+        try {
+          const probe = await fetch(`http://127.0.0.1:${port}/mcp`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }),
+          });
+          if (probe.ok) {
+            started = true;
+            break;
+          }
+        } catch {
+          /* 还没起来 */
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      ok(started, `HTTP 传输在 ${port} 起来了`);
+
+      try {
+        const init = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {} },
+          }),
+        });
+        eq(init.status, 200, 'initialize → 200');
+        eq(init.headers.get('content-type'), 'application/json', 'content-type 是 application/json');
+        const initBody = await init.json();
+        eq(initBody.result.serverInfo.name, 'agentlink', 'HTTP 上也能拿到 serverInfo');
+
+        const tools = await (
+          await fetch(`http://127.0.0.1:${port}/mcp`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+          })
+        ).json();
+        gte(tools.result.tools.length, 8, `HTTP 上列出 ${tools.result.tools.length} 个工具`);
+
+        // 真的通过 HTTP 发一条消息。
+        // 先清空人类侧的队列：不然会读到上一节留下的那条（队列是 FIFO）。
+        await human.drain(200);
+        const sent2 = await (
+          await fetch(`http://127.0.0.1:${port}/mcp`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 3,
+              method: 'tools/call',
+              params: {
+                name: 'agentlink_send_message',
+                arguments: { conv_id: conv.id, text: '通过 HTTP 传输发的', client_msg_id: 'mcp-http-1' },
+              },
+            }),
+          })
+        ).json();
+        ok(sent2.result.isError !== true, 'HTTP 上调用工具成功');
+        const evt2 = await human.nextEvent('message.new');
+        eq(evt2.data.message.content[0].text, '通过 HTTP 传输发的', '人类收到了 HTTP 传输发的消息');
+
+        // 通知（无 id）→ 202 且无 body
+        const notify = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+        });
+        eq(notify.status, 202, '纯通知 → 202（无 body）');
+
+        // 批量请求
+        const batchRes = await (
+          await fetch(`http://127.0.0.1:${port}/mcp`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify([
+              { jsonrpc: '2.0', id: 'b1', method: 'ping' },
+              { jsonrpc: '2.0', id: 'b2', method: 'tools/list' },
+            ]),
+          })
+        ).json();
+        eq(Array.isArray(batchRes) ? batchRes.length : 0, 2, '批量请求返回两条响应');
+
+        // 错误路径
+        const wrongPath = await fetch(`http://127.0.0.1:${port}/other`, { method: 'POST' });
+        eq(wrongPath.status, 404, 'POST /other → 404（不做成通用 RPC 网关）');
+        const badJson = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{not json',
+        });
+        eq(badJson.status, 400, '坏 JSON → 400');
+        const badBody = await badJson.json();
+        eq(badBody.error.code, -32700, '错误码 -32700');
+      } finally {
+        httpInstance.kill('SIGKILL');
+      }
+    }
   } finally {
     mcp.close();
     human.close();

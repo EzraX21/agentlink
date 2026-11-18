@@ -239,6 +239,16 @@ MAX_ATTACHMENT_BYTES=200MiB     # 或指定一个更大的值（也支持纯字�
 | `agentlink_react` | 加/取消表情回应 |
 | `agentlink_edit_message` | 编辑自己发过的消息 |
 
+**两种传输**：
+
+- **stdio**（默认）：本机客户端 spawn 子进程，零端口、token 不过网络。上面那段配置就是。
+- **HTTP**（远程客户端）：设 `AGENTLINK_MCP_HTTP_PORT=8765`，然后 `POST /mcp` 一个
+  JSON-RPC 即可（回 `application/json`，支持批量；纯通知回 202）。适合容器里的 DSH、
+  另一台机器上的运行时 —— 它们没法 spawn 本地进程。
+  只开放 `POST /mcp`，其余路径 404（不做成通用 RPC 网关）。
+  没做 GET 推送流与 Session 管理：需要"等消息"用 `agentlink_wait_for_message`
+  工具（长轮询 30 秒）已经够，不必再引一条长连接和它自己的重连语义。
+
 两个默认值值得注意：
 
 - **订阅范围**：MCP server 默认订阅**全部消息**（`AGENTLINK_ONLY_MENTIONS=1` 可改回

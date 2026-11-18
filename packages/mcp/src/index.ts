@@ -354,63 +354,166 @@ const TOOLS: ToolDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// JSON-RPC 分发
+// 供两种传输复用的"处理一个 JSON-RPC 请求"
 // ---------------------------------------------------------------------------
 
-async function handle(req: RpcRequest): Promise<void> {
+/**
+ * 处理一条 JSON-RPC 请求，返回响应帧（通知类返回 null）。
+ *
+ * 抽出来是因为现在有**两种传输**：stdio（本机客户端 spawn）和 HTTP（远程客户端，
+ * 按 MCP 的 Streamable HTTP 约定：POST 一个 JSON-RPC，回 application/json）。
+ * 工具实现只应有一份 —— 两种传输只是把请求送进来的方式不同。
+ */
+async function dispatch(req: RpcRequest): Promise<unknown | null> {
+  const isNotification = req.id === undefined;
   switch (req.method) {
     case 'initialize':
-      respond(req.id, {
-        protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: {} },
-        serverInfo: SERVER_INFO,
-      });
-      return;
+      if (isNotification) return null;
+      return {
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          protocolVersion: PROTOCOL_VERSION,
+          capabilities: { tools: {} },
+          serverInfo: SERVER_INFO,
+        },
+      };
 
     case 'notifications/initialized':
     case 'notifications/cancelled':
-      return; // 通知：不回
+      return null;
 
     case 'ping':
-      respond(req.id, {});
-      return;
+      return isNotification ? null : { jsonrpc: '2.0', id: req.id, result: {} };
 
     case 'tools/list':
-      respond(req.id, {
-        tools: TOOLS.map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        })),
-      });
-      return;
+      return isNotification
+        ? null
+        : {
+            jsonrpc: '2.0',
+            id: req.id,
+            result: {
+              tools: TOOLS.map((t) => ({
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema,
+              })),
+            },
+          };
 
     case 'tools/call': {
+      if (isNotification) return null;
       const params = (req.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
       const tool = TOOLS.find((t) => t.name === params.name);
       if (tool === undefined) {
-        respondError(req.id, { code: -32602, message: `未知工具: ${String(params.name)}` });
-        return;
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          error: { code: -32602, message: `未知工具: ${String(params.name)}` },
+        };
       }
       try {
         const text = await tool.run(params.arguments ?? {});
-        respond(req.id, { content: [{ type: 'text', text }] });
+        return { jsonrpc: '2.0', id: req.id, result: { content: [{ type: 'text', text }] } };
       } catch (err) {
-        // 工具级失败用 isError 表达（MCP 约定），而不是 JSON-RPC 错误：
-        // 这样模型能看到"工具报了错"并自己决定重试或换路。
-        respond(req.id, {
-          content: [
-            { type: 'text', text: err instanceof Error ? err.message : String(err) },
-          ],
-          isError: true,
-        });
+        // 工具级失败用 isError（MCP 约定），模型能看到错误文本自己决定重试
+        return {
+          jsonrpc: '2.0',
+          id: req.id,
+          result: {
+            content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }],
+            isError: true,
+          },
+        };
       }
-      return;
     }
 
     default:
-      respondError(req.id, { code: -32601, message: `不支持的方法: ${req.method}` });
+      return isNotification
+        ? null
+        : {
+            jsonrpc: '2.0',
+            id: req.id,
+            error: { code: -32601, message: `不支持的方法: ${req.method}` },
+          };
   }
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC 分发（stdio 用：把 dispatch 的结果写回 stdout）
+// ---------------------------------------------------------------------------
+
+async function handle(req: RpcRequest): Promise<void> {
+  const res = await dispatch(req);
+  if (res !== null) write(res);
+}
+
+
+// ---------------------------------------------------------------------------
+// HTTP 传输（MCP Streamable HTTP 的最小实现）
+// ---------------------------------------------------------------------------
+//
+// 为什么还要 HTTP：stdio 只能本机 spawn。远程客户端（容器里的 DSH、
+// 另一台机器上的 agent 运行时）没法 spawn 本地进程，只能连 URL。
+//
+// 实现取最小可用子集：POST /mcp 收一个 JSON-RPC（或一批），回 application/json。
+// **不做** GET 的服务器推送流与会话管理（Mcp-Session-Id）—— 需要推送的场景
+// 用 `agentlink_wait_for_message` 工具（长轮询 30 秒）已经够用，不必再引入
+// 一条长连接与它自己的断线重连语义。
+//
+// 用 AGENTLINK_MCP_HTTP_PORT 打开：设了端口就以 HTTP 模式跑（stdio 仍然可用）。
+
+async function startHttp(port: number): Promise<void> {
+  const { createServer } = await import('node:http');
+  const server = createServer((req, res) => {
+    // 只允许 POST /mcp：其余路径明确 404，避免被当成通用 RPC 网关
+    if (req.method !== 'POST' || (req.url ?? '').split('?')[0] !== '/mcp') {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'only POST /mcp is supported' }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      void (async () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'JSON 解析失败' } }));
+          return;
+        }
+        const batch = Array.isArray(parsed);
+        const requests = (batch ? parsed : [parsed]) as RpcRequest[];
+        const responses: unknown[] = [];
+        for (const r of requests) {
+          const out = await dispatch(r);
+          if (out !== null) responses.push(out);
+        }
+        // 全是通知时按 MCP 约定回 202 且无 body
+        if (responses.length === 0) {
+          res.writeHead(202);
+          res.end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(batch ? responses : responses[0]));
+      })().catch((err: unknown) => {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32603, message: err instanceof Error ? err.message : String(err) },
+          }),
+        );
+      });
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(port, '0.0.0.0', () => resolve()));
+  process.stderr.write(`[agentlink-mcp] HTTP 传输监听 0.0.0.0:${port}（POST /mcp）\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +539,16 @@ async function onLine(line: string): Promise<void> {
       code: -32603,
       message: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+const httpPortRaw = process.env['AGENTLINK_MCP_HTTP_PORT'];
+if (httpPortRaw !== undefined && httpPortRaw !== '') {
+  const port = Number(httpPortRaw);
+  if (Number.isFinite(port) && port > 0) {
+    void startHttp(port);
+  } else {
+    process.stderr.write(`[agentlink-mcp] AGENTLINK_MCP_HTTP_PORT 非法: ${httpPortRaw}\n`);
   }
 }
 

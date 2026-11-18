@@ -282,6 +282,34 @@ export async function run(ctx) {
       await page.waitForTimeout(200);
     });
 
+    // ---- 深色主题下的新 UI ----
+    // 置顶横幅、表情 chip、编辑提示这些是协议扩展引入的元素，
+    // 浅色基线覆盖不到它们在深色下的对比度（浅底改深底最容易出现"看不见"）。
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
+
+    await shoot('12-dark-pinned-reactions', async () => {
+      await page.click('button:has-text("🌙"), button:has-text("☀️")');
+      await page.waitForTimeout(300);
+      await page.waitForSelector('text=置顶：', { timeout: 10_000 });
+      await page.waitForSelector('[aria-label*="👍"]', { timeout: 10_000 });
+    });
+
+    await shoot('13-dark-editing', async () => {
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.click('role=menuitem[name="编辑"]');
+      await page.waitForSelector('text=正在编辑这条消息', { timeout: 10_000 });
+    });
+
+    await shoot('14-dark-forward-dialog', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.click('role=menuitem[name="转发"]');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+      await page.waitForTimeout(200);
+    });
+
 
   } finally {
     await page.close().catch(() => undefined);
@@ -320,6 +348,13 @@ export async function run(ctx) {
   };
   const lightChat = buffers.get('02-chat');
   const darkChat = buffers.get('08-dark-chat');
+  const lightPinned = buffers.get('09-pinned-and-reactions');
+  const darkPinned = buffers.get('12-dark-pinned-reactions');
+  if (lightPinned !== undefined && darkPinned !== undefined) {
+    const l = meanLuma(lightPinned);
+    const d = meanLuma(darkPinned);
+    ok(d < l * 0.75, `深色下的置顶/表情页确实更暗：浅色 ${l.toFixed(1)} → 深色 ${d.toFixed(1)}`);
+  }
   if (lightChat !== undefined && darkChat !== undefined) {
     const light = meanLuma(lightChat);
     const dark = meanLuma(darkChat);
@@ -332,8 +367,8 @@ export async function run(ctx) {
   const compared = results.filter((r) => r.status === 'compared');
   eq(
     results.length,
-    11,
-    `共 11 张截图（基础页 + 弹窗/菜单/搜索/深色 + 置顶与表情/编辑态/转发框），其中 ${compared.length} 张与基线比对`,
+    14,
+    `共 14 张截图（基础页 + 弹窗/菜单/搜索 + 新 UI 的浅色与深色两套），其中 ${compared.length} 张与基线比对`,
   );
   ok(true, `基线目录：${BASELINE_DIR}；diff 输出：${DIFF_DIR}`);
 

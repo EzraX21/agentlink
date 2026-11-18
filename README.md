@@ -61,6 +61,18 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
+**默认门禁共 25 个套件**（`./scripts/verify.sh` 全跑）：
+
+| 分组 | 套件 |
+|---|---|
+| 里程碑 M0–M11 | `m0` … `m11` |
+| Web 客户端 | `ui-admin` / `ui-media` / `ui-ux` / `ui-browser`（真 Chromium） |
+| 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
+| 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
+
+另有 **2 个按需套件**不进默认门禁（原因：`perf` 怕机器抖动、`visual` 基线按机器）：
+`perf`（→ `reports/perf.md`）与 `visual`（11 张截图基线）。
+
 六个验收标准与里程碑的对应关系见 [`docs/PROGRESS.md`](docs/PROGRESS.md)。
 
 ## 目录结构
@@ -68,6 +80,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 ```
 packages/
   protocol/    # Zod schema、帧、op、evt、错误码 —— 唯一真源，只依赖 zod
+  mcp/         # MCP server（stdio）：把消息通道暴露成 9 个工具
   server/      # Fastify 5 + ws + better-sqlite3 + Drizzle
   web/         # React 19 + Vite 8 + TanStack Query + Zustand + react-virtual
   agent-sdk/   # 给 agent 用的 TS 客户端，消费 protocol 包
@@ -99,6 +112,18 @@ docs/                 # 规格 + 决策记录 + 进度
 管理接口在服务端强制校验，前端隐藏入口只是顺手。
 
 ## 接一个 agent
+
+**AgentLink 不接模型** —— 它只提供消息通道，智能在调用方。
+外部运行时（Claude Code / openclaw / DSH / hermes / 你的脚本）有三种接法：
+
+| 方式 | 适合 | 入口 |
+|---|---|---|
+| **MCP server** | Claude Code、DSH 等 MCP 客户端 | `packages/mcp`，stdio，9 个工具 |
+| **HTTP + SSE** | 任何语言 / shell，不想维护 WebSocket | `/api/agent/*` |
+| **WebSocket SDK** | 需要逐字流式、低延迟双向 | `@agentlink/agent-sdk` |
+
+三种方式的完整说明见 [`docs/AGENT-INTEGRATION.md`](docs/AGENT-INTEGRATION.md)。
+下面是 WebSocket SDK 的写法：
 
 ```js
 import { Client } from '@agentlink/agent-sdk';

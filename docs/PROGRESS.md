@@ -26,7 +26,7 @@
 | *补：**真浏览器 E2E** | ✅ | 2026-11-17 | `run.mjs ui-browser` | 25（Chromium headless） |
 | *补：**性能实测** | ✅ | 2026-11-17 | `run.mjs perf` | 18 + `reports/perf.md` |
 | *补：错误边界 + 断线横幅 | ✅ | 2026-11-17 | `ui-browser` 第 9 段 | 30（含真断线重连） |
-| *补：**截图视觉回归** | ✅ | 2026-11-18 | `run.mjs visual` | 13（11 张基线，含置顶/表情/编辑态/转发框） |
+| *补：**截图视觉回归** | ✅ | 2026-11-18 | `run.mjs visual` | 14（14 张基线：新 UI 的浅色 + 深色两套） |
 | *补：**离线发件箱** | ✅ | 2026-11-17 | `ui-browser` 第 10 段 | 30 → 36（真断线排队 + 幂等重发） |
 | *补：键盘导航 + 视觉回归扩面 | ✅ | 2026-11-17 | `a11y` 单测 + `visual` | 80 单测 / 10 视觉断言 |
 | *补：新 UI 视觉基线 + 两条端到端 | ✅ | 2026-11-18 | `visual` / `ui-browser` | 11 基线 / 置顶跳转 + 转发 |
@@ -40,7 +40,7 @@
 | **扩展 5**：`message.pin/unpin` 置顶 | ✅ | 2026-11-17 | `run.mjs ext-pin` | 22 |
 | **扩展 6**：`message.forward` 转发 | ✅ | 2026-11-17 | `run.mjs ext-forward` | 24 |
 | **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
-| **MCP server**（Claude Code / DSH 挂工具） | ✅ | 2026-11-18 | `run.mjs mcp` | 38（真 stdio JSON-RPC） |
+| **MCP server**（stdio + HTTP 两种传输） | ✅ | 2026-11-18 | `run.mjs mcp` | 45 |
 | 外部 agent 流式回复（HTTP）+ Last-Event-ID | ✅ | 2026-11-17 | `run.mjs agent-http` | 51 |
 | 外部 agent 发附件（上传 + 便捷拼块） | ✅ | 2026-11-17 | `run.mjs agent-http` | 67 |
 | 解除附件大小上限（流式落盘） | ✅ | 2026-11-17 | `run.mjs ext-large-file` | 15（25 MiB 往返） |
