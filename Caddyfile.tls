@@ -1,0 +1,12 @@
+# 公网部署用的 Caddy 配置（compose profile: tls）。
+#
+# 它只做一件事：TLS 终止 + 把流量转给 **web** 容器（nginx）。
+# /api 与 /ws 由 nginx 再转给 server —— 这样 TLS 层不需要知道后端拓扑，
+# 客户端与服务端的边界保持不变。
+#
+# 把站点地址换成你的域名，Caddy 会自动申请证书（不需要 certbot）。
+
+{$AGENTLINK_DOMAIN:localhost} {
+	encode zstd gzip
+	reverse_proxy web:80
+}

@@ -128,7 +128,7 @@ async function runDeployChecks(ctx) {
   ok(true, 'Docker daemon 可用');
 
   section('M10.1 镜像与部署文件');
-  for (const f of ['Dockerfile', 'docker-compose.yml', 'Caddyfile', '.env.example']) {
+  for (const f of ['Dockerfile', 'Dockerfile.web', 'docker-compose.yml', 'Caddyfile.tls', '.env.example']) {
     const st = await stat(path.join(repoRoot, f)).catch(() => null);
     ok(st !== null && st.isFile(), `${f} 存在`);
   }
@@ -142,17 +142,39 @@ async function runDeployChecks(ctx) {
   includes(dockerfile, 'pnpm prune --prod', '运行镜像裁掉 devDependencies');
 
   const compose = await readFile(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
-  includes(compose, 'caddy', 'compose 里有 caddy');
+  includes(compose, 'web:', 'compose 里有独立的客户端服务 web');
+  includes(compose, 'caddy', 'compose 里有 caddy（profile: tls）');
   includes(compose, 'db:', 'compose 定义了 db 命名卷');
+  // 前后端分离的关键断言：服务端镜像不带前端产物
+  includes(compose, "PUBLIC_DIR: ''", '服务端不托管前端（PUBLIC_DIR 显式置空）');
+  const serverDockerfile = await readFile(`${repoRoot}/Dockerfile`, 'utf8');
+  ok(!serverDockerfile.includes('web/dist'), '服务端镜像里没有前端产物');
+  const webDockerfile = await readFile(`${repoRoot}/Dockerfile.web`, 'utf8');
+  includes(webDockerfile, 'nginx', '客户端镜像是 nginx + 静态产物');
+  // 注意：不能用 "文件里没有 better-sqlite3" 当断言 —— 注释里就会提到它（说明为什么不需要）。
+  // 真正该验的是运行阶段只有 nginx，没有 node 与后端依赖。
+  includes(webDockerfile, 'FROM nginx', '客户端镜像的运行阶段是 nginx');
+  ok(
+    !/COPY --from=build[^\n]*node_modules/.test(webDockerfile),
+    '客户端镜像不拷贝 node_modules（没有后端依赖）',
+  );
   includes(compose, 'JWT_SECRET', 'compose 通过环境变量注入 JWT_SECRET');
   includes(compose, 'AGENT_TOKEN_PEPPER', 'compose 注入 AGENT_TOKEN_PEPPER');
   includes(compose, 'condition: service_healthy', 'caddy 等 server 健康后再起');
   const volumeCount = (compose.match(/^\s{2}\w+:$/gm) ?? []).length;
   gte(volumeCount, 2, `compose 至少两个命名卷（实际 ${volumeCount} 项）`);
 
-  const caddy = await readFile(path.join(repoRoot, 'Caddyfile'), 'utf8');
-  includes(caddy, 'reverse_proxy', 'Caddyfile 做反向代理');
-  includes(caddy, 'websocket', 'Caddyfile 透传 WebSocket');
+  // 分离架构：TLS 层（Caddyfile.tls）只把流量交给 web 容器
+  const caddy = await readFile(path.join(repoRoot, 'Caddyfile.tls'), 'utf8');
+  includes(caddy, 'reverse_proxy web:80', 'TLS 层反代给 web 容器');
+  includes(caddy, 'AGENTLINK_DOMAIN', '站点地址可配（Caddy 自动签证书）');
+
+  // 客户端容器里的 nginx：托管静态产物 + 反代 /api 与 /ws
+  const nginx = await readFile(path.join(repoRoot, 'docker/nginx.conf.template'), 'utf8');
+  includes(nginx, 'try_files $uri $uri/ /index.html', 'nginx 做 SPA 兜底');
+  includes(nginx, 'proxy_pass http://agentlink_backend', 'nginx 反代 API 到服务端');
+  includes(nginx, 'upgrade', 'nginx 透传 WebSocket 升级');
+  includes(nginx, 'proxy_buffering off', 'SSE 必须关掉缓冲（否则事件被攒住不发）');
 
   section('M10.2 镜像存在');
   const images = await docker(['images', '--format', '{{.Repository}}:{{.Tag}}']);
@@ -167,7 +189,39 @@ async function runDeployChecks(ctx) {
     return summary('M10');
   }
 
-  section('M10.3 docker compose up 起服务');
+  section('M10.3 构建两个镜像（前后端分离：server + web）');
+  // 验收 6 的原话是"docker compose up 从零起服务" —— 那就**真的**构建一次，
+  // 不能靠"镜像是别人先建好的"。而且现在是两个镜像，都要建。
+  {
+    const buildEnv = {
+      ...process.env,
+      DOCKER_CONFIG: process.env.DOCKER_CONFIG ?? path.resolve(repoRoot, '../.runtime/docker'),
+    };
+    for (const [args, label] of [
+      [['build', '-t', 'agentlink-server:latest', '.'], '服务端镜像'],
+      [['build', '-f', 'Dockerfile.web', '-t', 'agentlink-web:latest', '.'], '客户端镜像'],
+    ]) {
+      // exec 是 promisify(execFile)：**成功时正常返回、失败时抛异常**，
+      // 没有 .ok 字段。之前写成 r.ok 会恒为 undefined，把成功判成失败。
+      let buildError = null;
+      try {
+        await exec('docker', args, {
+          cwd: repoRoot,
+          env: buildEnv,
+          timeout: 1800_000,
+          maxBuffer: 20 * 1024 * 1024,
+        });
+      } catch (err) {
+        buildError = err;
+      }
+      ok(
+        buildError === null,
+        `${label}构建成功${buildError === null ? '' : `：${String(buildError.stderr ?? buildError.message).split('\n').slice(-3).join(' ')}`}`,
+      );
+    }
+  }
+
+  section('M10.4 docker compose up 起服务');
   const composeEnv = {
     ...process.env,
     ...COMPOSE_SECRETS,
@@ -184,7 +238,7 @@ async function runDeployChecks(ctx) {
   const psAfterDown = await docker(['compose', 'ps', '--format', '{{.Name}}']);
   eq((psAfterDown.stdout ?? '').trim(), '', 'down -v 后没有残留容器（从零开始）');
 
-  const up = await exec('docker', ['compose', 'up', '-d', '--no-build'], {
+  const up = await exec('docker', ['compose', 'up', '-d'], {
     cwd: repoRoot,
     env: composeEnv,
     timeout: 300_000,
@@ -202,7 +256,7 @@ async function runDeployChecks(ctx) {
   }
   eq(health.body?.ok, true, `GET http://127.0.0.1:${HTTP_PORT}/healthz → {"ok":true}`);
 
-  section('M10.4 浏览器路径：静态资源 + 注册/登录/发消息');
+  section('M10.5 浏览器路径：静态资源 + 注册/登录/发消息');
   const indexRes = await fetch(`http://127.0.0.1:${HTTP_PORT}/`);
   eq(indexRes.status, 200, 'GET / → 200');
   const indexHtml = await indexRes.text();
@@ -266,7 +320,7 @@ async function runDeployChecks(ctx) {
   );
   client.close();
 
-  section('M10.5 docker compose restart → 数据还在');
+  section('M10.6 docker compose restart → 数据还在');
   const restart = await exec('docker', ['compose', 'restart'], {
     cwd: repoRoot,
     env: composeEnv,
@@ -309,18 +363,35 @@ async function runDeployChecks(ctx) {
   }
   client2.close();
 
-  section('M10.6 容器健康状态与自愈');
+  section('M10.7 容器健康状态与自愈');
   const psOut = await docker(['compose', 'ps', '--format', '{{.Service}} {{.Status}}']);
   const psText = psOut.stdout ?? '';
-  includes(psText, 'server', 'compose ps 能看到 server 服务');
+  includes(psText, 'server', 'compose ps 能看到 server 服务（API/WS）');
+  includes(psText, 'web', 'compose ps 能看到 web 服务（前端）');
   if (psText.includes('healthy')) {
-    ok(true, 'server 容器状态 healthy（HEALTHCHECK 生效）');
+    ok(true, '容器状态 healthy（HEALTHCHECK 生效）');
   } else {
     // 刚重启时可能还在 starting，等一下再看一次
     await new Promise((r) => setTimeout(r, 20_000));
     const ps2 = await docker(['compose', 'ps', '--format', '{{.Service}} {{.Status}}']);
-    includes(ps2.stdout ?? '', 'healthy', 'server 容器最终变为 healthy');
+    includes(ps2.stdout ?? '', 'healthy', '容器最终变为 healthy');
   }
+
+  // 两个镜像的**内容边界**必须是干净的（前后端真的分开了）
+  const serverFiles = await docker([
+    'run', '--rm', '--entrypoint', 'sh', 'agentlink-server:latest',
+    '-c', 'ls /app/packages',
+  ]);
+  ok(
+    (serverFiles.stdout ?? '').includes('server') &&
+      !(serverFiles.stdout ?? '').includes('web'),
+    '服务端镜像里只有服务端代码（没有 web）',
+  );
+  const webHasNode = await docker([
+    'run', '--rm', '--entrypoint', 'sh', 'agentlink-web:latest',
+    '-c', 'command -v node || echo none',
+  ]);
+  includes(webHasNode.stdout ?? '', 'none', '客户端镜像里没有 node（纯 nginx 静态服务）');
 
   const inspect = await docker([
     'inspect',

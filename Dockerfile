@@ -1,6 +1,10 @@
-# ---- 构建阶段：装依赖 + 构建全部包 + 构建 Web ----
-# 用 debian 而不是 alpine：better-sqlite3 的预编译 binary 对 glibc 更稳，
-# 且 caddy 之后单独一层。Node 26 LTS 是项目目标版本（需求确认书 §8.2）。
+# ---- 服务端镜像：只有 API + WebSocket，**不含前端产物** ----
+#
+# 前端在 Dockerfile.web 里单独构建（nginx 托管）。两个镜像的边界与代码边界一致：
+# 服务端镜像里没有 dist/ 的客户端代码，客户端镜像里没有数据库与 token。
+#
+# 用 debian 而不是 alpine：better-sqlite3 的预编译 binary 对 glibc 更稳。
+# Node 24 LTS 是当前环境版本（需求确认书 §8.2 目标是 26）。
 FROM node:24-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
@@ -20,6 +24,7 @@ COPY packages/protocol/package.json packages/protocol/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
 COPY packages/agent-sdk/package.json packages/agent-sdk/
+COPY packages/mcp/package.json packages/mcp/
 COPY examples/package.json examples/
 
 # XDG_RUNTIME_DIR 必须在可写位置：pnpm 会在那里放 store 操作锁
@@ -31,7 +36,11 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
 COPY packages ./packages
 COPY examples ./examples
-RUN pnpm -r build
+# 只构建服务端需要的包（不含 web / mcp）：
+# 服务端镜像里不该出现前端与 MCP 的产物，否则镜像边界就糊了。
+RUN pnpm --filter @agentlink/protocol build \
+ && pnpm --filter @agentlink/agent-sdk build \
+ && pnpm --filter @agentlink/server build
 
 # 裁掉 devDependencies，只留运行期依赖
 RUN pnpm prune --prod
@@ -44,7 +53,9 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV DATABASE_PATH=/data/agentlink.db
 ENV UPLOADS_DIR=/data/uploads
-ENV PUBLIC_DIR=/app/public
+# 明确**不**托管前端：客户端在另一个镜像里。
+# 设成空串而不是不设，是为了让"这个镜像不提供前端"成为显式声明。
+ENV PUBLIC_DIR=
 
 WORKDIR /app
 
@@ -59,7 +70,6 @@ COPY --from=build /app/packages/server/package.json ./packages/server/package.js
 COPY --from=build /app/packages/server/drizzle ./packages/server/drizzle
 COPY --from=build /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=build /app/packages/protocol/node_modules ./packages/protocol/node_modules
-COPY --from=build /app/packages/web/dist ./public
 
 # 数据卷：SQLite 与附件都在这里，重启不丢（验收 6）
 RUN mkdir -p /data/uploads

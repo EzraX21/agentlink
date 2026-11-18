@@ -1,0 +1,79 @@
+# 客户端（前端）容器里的 nginx 配置。
+#
+# 它同时做两件事：
+#   1. 托管静态产物（SPA：找不到文件就回 index.html）
+#   2. 把 /api、/ws、/healthz 反代到**服务端**容器
+#
+# 这样浏览器看到的仍然是"同源"（都从这个 nginx 来），
+# 所以**不需要 CORS** —— CORS 只在"客户端与服务端真的在不同域名"时才需要。
+# 两种形态都支持：
+#   - 本 compose：nginx 反代 → 同源，CORS_ORIGINS 留空
+#   - 客户端放 CDN：直接指向服务端域名 → 服务端设 CORS_ORIGINS
+#
+# ${AGENTLINK_SERVER} 由 docker-entrypoint 用 envsubst 注入（默认 server:3000）。
+
+upstream agentlink_backend {
+    server ${AGENTLINK_SERVER};
+    keepalive 32;
+}
+
+server {
+    listen ${NGINX_PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 上传大文件：不限制请求体（真正的上限由服务端的 MAX_ATTACHMENT_BYTES 决定）
+    client_max_body_size 0;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # 带 hash 的产物可以长缓存；index.html 绝不缓存（否则发版后用户拿到旧壳）
+    location /assets/ {
+        expires 1y;
+        add_header cache-control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location = /index.html {
+        add_header cache-control "no-store";
+    }
+
+    # 健康检查透传给服务端（协议 §1 要求 {"ok":true}）
+    location = /healthz {
+        proxy_pass http://agentlink_backend;
+        proxy_http_version 1.1;
+        proxy_set_header host $host;
+    }
+
+    location /api/ {
+        proxy_pass http://agentlink_backend;
+        proxy_http_version 1.1;
+        proxy_set_header host $host;
+        proxy_set_header x-real-ip $remote_addr;
+        proxy_set_header x-forwarded-for $proxy_add_x_forwarded_for;
+        proxy_set_header x-forwarded-proto $scheme;
+
+        # SSE（/api/agent/events）：必须关掉缓冲，否则事件会被 nginx 攒着不发
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+    }
+
+    location /ws {
+        proxy_pass http://agentlink_backend;
+        proxy_http_version 1.1;
+        proxy_set_header upgrade $http_upgrade;
+        proxy_set_header connection "upgrade";
+        proxy_set_header host $host;
+        proxy_read_timeout 3600s;
+    }
+
+    # SPA 兜底
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

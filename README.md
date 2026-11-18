@@ -154,7 +154,16 @@ curl -sX POST localhost:3000/api/admin/agents \
 
 ## 前后端分离部署
 
-默认同源（服务端带 `PUBLIC_DIR` 托管客户端）。要分开部署：
+默认同源（服务端带 `PUBLIC_DIR` 托管客户端）。**Docker 里默认就是分离的**：
+两个镜像、两个服务，`web`（nginx）托管前端并反代 `/api` 与 `/ws`。
+
+```bash
+docker build -t agentlink-server:latest .                 # 只有 API + WS
+docker build -f Dockerfile.web -t agentlink-web:latest .   # nginx + 静态产物
+docker compose up -d                                       # 访问 http://localhost:8080
+```
+
+不用 Docker、想放到不同域名：
 
 ```bash
 # 服务端：只管 API，并放行客户端来源

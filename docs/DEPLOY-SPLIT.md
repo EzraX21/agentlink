@@ -9,6 +9,38 @@
 - 客户端可以放 CDN，静态资源走边缘节点
 - 多个环境（staging/prod）共用一个 API 时更清楚
 
+## 三种形态
+
+| 形态 | 客户端在哪 | 服务端配置 | CORS |
+|---|---|---|---|
+| **同源**（默认） | 服务端托管（`PUBLIC_DIR`） | `PUBLIC_DIR=./packages/web/dist` | 不需要 |
+| **Docker 分离**（推荐） | `web` 容器（nginx）反代 API | `PUBLIC_DIR=` 空 | **不需要**（nginx 让它对浏览器同源） |
+| **真跨域** | CDN / 另一个域名 | `PUBLIC_DIR=` + `CORS_ORIGINS=...` | 需要，白名单 |
+
+## Docker：两个镜像、两个服务
+
+```bash
+docker build -t agentlink-server:latest .                    # 只有 API + WS
+docker build -f Dockerfile.web -t agentlink-web:latest .      # nginx + 静态产物
+docker compose up -d
+# 浏览器访问 http://localhost:8080（HTTP_PORT）
+```
+
+镜像边界与代码边界一致，而且**验收会查**：
+
+- `agentlink-server` 里只有 `packages/protocol` 与 `packages/server`（没有 `web` 产物）
+- `agentlink-web` 里没有 node、没有 `node_modules`（纯 nginx 静态服务）
+
+`web` 容器里的 nginx 做三件事：托管静态产物（SPA 兜底）、反代 `/api`、反代 `/ws`
+（含 Upgrade 头）。**SSE 必须 `proxy_buffering off`**，否则 `/api/agent/events`
+的事件会被 nginx 攒着不发。
+
+对浏览器来说仍是同源（都从 nginx 来），所以这套形态**不需要 CORS**。
+把客户端换成 CDN 时才需要给服务端设 `CORS_ORIGINS`。
+
+公网 TLS 用 `docker compose --profile tls up -d`：Caddy 只做 TLS 终止 + 转给 `web:80`，
+不关心后端拓扑。
+
 ## 服务端：只管 API
 
 ```bash

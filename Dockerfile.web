@@ -1,0 +1,51 @@
+# ---- 客户端镜像：只含构建好的静态产物 + 一个精简的静态服务器 ----
+#
+# 与服务端**完全分离**：这个镜像里没有 Node 服务端代码、没有数据库、没有 token。
+# 它只做两件事：托管 dist/ 的静态文件、把 /api 与 /ws 反代到服务端。
+#
+# 为什么用 nginx 而不是"让 Caddy 同时托管静态文件"：
+#   - nginx 的静态服务是它的主场（sendfile / gzip / 缓存头都成熟）
+#   - 客户端镜像可以独立扩缩容、独立发布，不牵动 API
+#   - 前后端分离是用户明确要的部署形态，镜像边界要跟代码边界一致
+FROM node:24-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
+
+WORKDIR /app
+
+# 客户端只依赖 protocol（类型）+ 前端库，装依赖不需要 better-sqlite3 的构建工具
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/protocol/package.json packages/protocol/
+COPY packages/web/package.json packages/web/
+COPY packages/agent-sdk/package.json packages/agent-sdk/
+COPY packages/server/package.json packages/server/
+COPY packages/mcp/package.json packages/mcp/
+COPY examples/package.json examples/
+
+ENV XDG_RUNTIME_DIR=/tmp/pnpm-runtime
+RUN mkdir -p /tmp/pnpm-runtime
+RUN pnpm install --frozen-lockfile --filter @agentlink/web...
+
+COPY tsconfig.base.json ./
+COPY packages/protocol ./packages/protocol
+COPY packages/web ./packages/web
+RUN pnpm --filter @agentlink/protocol build && pnpm --filter @agentlink/web build
+
+# ---- 运行阶段：nginx + 静态产物 ----
+FROM nginx:1.27-alpine AS runtime
+
+# 前端产物
+COPY --from=build /app/packages/web/dist /usr/share/nginx/html
+# 配置模板：用 envsubst 在启动时注入服务端地址
+COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+
+ENV AGENTLINK_SERVER=server:3000
+ENV NGINX_PORT=80
+
+EXPOSE 80
+
+# nginx 官方镜像的 entrypoint 会自动对 /etc/nginx/templates/*.template 做 envsubst
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+  CMD wget -qO- "http://127.0.0.1:${NGINX_PORT}/healthz" >/dev/null 2>&1 || exit 1
