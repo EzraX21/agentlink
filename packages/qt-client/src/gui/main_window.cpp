@@ -1,7 +1,11 @@
 #include "main_window.hpp"
 
+#include <QAction>
 #include <QFileDialog>
 #include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTimer>
@@ -11,6 +15,7 @@
 #include "core/auth_api.hpp"
 #include "core/client.hpp"
 #include "core/settings.hpp"
+#include "onboarding.hpp"
 
 namespace agentlink {
 
@@ -36,6 +41,56 @@ MainWindow::MainWindow(Client* client, AuthApi* api, SettingsStore* settings, QW
 
   connect(client_, &Client::stateChanged, this, &MainWindow::onStateChanged);
   connect(client_, &Client::eventReceived, this, &MainWindow::onEvent);
+
+  buildMenus();
+}
+
+/**
+ * 菜单：让用户**随时**能加/换服务器。
+ *
+ * 这是"客户端在任意电脑上、自己手填服务器地址"的另一半 ——
+ * 只在首次启动时问一次是不够的：用户可能要从公司服务器切到自己的，
+ * 或者服务端换了地址。
+ */
+void MainWindow::buildMenus() {
+  auto* serverMenu = menuBar()->addMenu(QStringLiteral("服务器"));
+
+  auto* switchAction = serverMenu->addAction(QStringLiteral("添加 / 切换服务器…"));
+  connect(switchAction, &QAction::triggered, this, &MainWindow::promptSwitchServer);
+
+  auto* currentAction = serverMenu->addAction(QStringLiteral("当前服务器"));
+  currentAction->setEnabled(false);
+  currentAction->setText(
+      QStringLiteral("当前服务器：%1").arg(client_->address().display().isEmpty()
+                                               ? QStringLiteral("（未连接）")
+                                               : client_->address().display()));
+
+  serverMenu->addSeparator();
+  auto* quitAction = serverMenu->addAction(QStringLiteral("退出"));
+  connect(quitAction, &QAction::triggered, this, &QWidget::close);
+}
+
+void MainWindow::promptSwitchServer() {
+  // 复用同一套引导流程：填地址 → 注册/登录。
+  // 走完之后用新地址与新 token 重连（不重启进程）。
+  Onboarding onboarding(api_, settings_, this);
+  if (onboarding.exec() != QDialog::Accepted) return;
+
+  const auto address = ServerAddress::parse(onboarding.serverAddress());
+  if (!address.has_value()) {
+    QMessageBox::warning(this, QStringLiteral("地址不对"),
+                         QStringLiteral("这个地址解析不了：%1").arg(onboarding.serverAddress()));
+    return;
+  }
+
+  api_->setHttpBase(address->httpBase());
+  // 先清空界面：上一个服务器的会话列表不该留在屏幕上
+  conversations_->setConversations({});
+  chat_->openConversation(QString(), QString());
+  chat_->setStatus(QStringLiteral("正在连接 %1 …").arg(address->display()));
+
+  client_->connectTo(*address, onboarding.accessToken());
+  emit serverChanged(address->url, onboarding.accessToken());
 }
 
 void MainWindow::onStateChanged(int state, const QString& detail) {

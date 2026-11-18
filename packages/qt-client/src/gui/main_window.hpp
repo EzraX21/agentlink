@@ -29,6 +29,13 @@ class MainWindow : public QMainWindow {
   /// 登录态失效了：回到引导流程。
   void requireLogin();
 
+  /// 用户要求加/换服务器（引导流程再走一遍）。
+  void promptSwitchServer();
+
+ signals:
+  /// 连到了别的服务器：上层要用新地址与新 token 重连。
+  void serverChanged(const QString& wsUrl, const QString& accessToken);
+
  private slots:
   void onStateChanged(int state, const QString& detail);
   void onEvent(const QString& type, const QVariantMap& data);
@@ -37,6 +44,7 @@ class MainWindow : public QMainWindow {
   void onConversationSelected(const QString& convId);
 
  private:
+  void buildMenus();
   void refreshConversations();
   void sendMessage(const QString& text);
   void sendAttachment(const QString& filePath);
