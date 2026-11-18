@@ -297,6 +297,77 @@ export async function run(ctx) {
       await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
     }
 
+    section('5c. 置顶横幅：点它跳到被置顶的消息');
+    {
+      // 让 alice 通过 WS 置顶第一条消息（她自己是 owner）
+      const hist = await a.request('history.fetch', { conv_id: conv.id, limit: 50 });
+      const target = hist.data.messages.filter((m) => m.state === 'final')[0];
+      expectOk(
+        await a.request('message.pin', { conv_id: conv.id, message_id: target.id }),
+        '置顶最早那条消息',
+      );
+      // 往底部滚，再点横幅应该跳回去
+      await page.locator('.al-chat-bg').first().evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+      await page.waitForTimeout(300);
+      await page.waitForSelector('text=置顶：', { timeout: 10_000 });
+      ok(true, '置顶横幅出现了');
+      await page.locator('text=置顶：').first().click();
+      await page.waitForTimeout(600);
+      const visible = await page.evaluate((id) => {
+        const el = document.querySelector(`[data-message-id="${id}"]`);
+        if (el === null) return false;
+        const r = el.getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= window.innerHeight;
+      }, target.id);
+      ok(visible, '点置顶横幅后，被置顶的消息滚动到可见区域');
+      await page.screenshot({ path: path.join(SHOT_DIR, '14-pinned-jump.png') });
+
+      // 取消置顶（owner 有 ✕）
+      await page.click('button[aria-label="取消置顶"]');
+      await page.waitForSelector('text=置顶：', { state: 'detached', timeout: 10_000 });
+      ok(true, '取消置顶后横幅消失');
+    }
+
+    section('5d. 转发：选目标会话后，目标群真的收到');
+    {
+      // 先建第二个群（alice 与 bob 都在里面）
+      const second = expectOk(
+        await a.request('conv.create', {
+          kind: 'group',
+          title: '转发目标群',
+          member_ids: [bob.user.id],
+        }),
+        '建第二个群',
+      ).conv;
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForSelector('text=浏览器测试群', { timeout: 20_000 });
+      await page.click('text=浏览器测试群');
+      await page.waitForSelector('[data-message-id]', { timeout: 10_000 });
+
+      // 右键最后一条 → 转发 → 选目标群
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.click('role=menuitem[name="转发"]');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+      const dialogText = await page.locator('[role="dialog"]').innerText();
+      ok(dialogText.includes('转发目标群'), '转发对话框列出了目标会话');
+      await page.locator('[role="dialog"]').getByText('转发目标群').click();
+      await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 10_000 });
+      ok(true, '选完目标后对话框关闭');
+
+      // 用 WS 查目标群历史，确认真的转过去了
+      let forwarded = 0;
+      for (let i = 0; i < 30; i += 1) {
+        const target = await a.request('history.fetch', { conv_id: second.id, limit: 10 });
+        forwarded = target.data.messages.length;
+        if (forwarded > 0) break;
+        await page.waitForTimeout(200);
+      }
+      gte(forwarded, 1, `目标群收到了转发（${forwarded} 条）`);
+      await page.screenshot({ path: path.join(SHOT_DIR, '15-forwarded.png') });
+    }
+
     section('6. 搜索（Ctrl+K → 命中高亮）');
     await page.keyboard.press('Control+k');
     await page.waitForSelector('input[placeholder*="搜索消息"]', { timeout: 5000 });

@@ -70,7 +70,7 @@ export function MessageBubble({
 
   return (
     <div
-      className={`flex gap-2 px-4 py-1 ${isSelf ? 'flex-row-reverse' : ''}`}
+      className={`group flex gap-2 px-4 py-1 ${isSelf ? 'flex-row-reverse' : ''}`}
       onContextMenu={(e) => {
         if (onContextMenu !== undefined) {
           e.preventDefault();

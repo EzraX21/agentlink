@@ -53,7 +53,8 @@ export function ReactionBar({
         );
       })}
 
-      <div className="relative">
+      {/* 「＋」默认隐藏，鼠标移到气泡上才出现 —— 否则每条消息下面都挂一个按钮，太吵 */}
+      <div className="relative opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <button
           className="rounded-full px-1.5 py-0.5 text-[11px]"
           style={{ background: 'var(--al-bg-hover)', border: '1px solid var(--al-border)' }}

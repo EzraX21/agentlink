@@ -16,7 +16,7 @@
 import path from 'node:path';
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { section, summary, ok, eq, lte } from './_assert.mjs';
+import { section, summary, ok, eq, lte, expectOk } from './_assert.mjs';
 import { WsClient } from './_client.mjs';
 import { openDb } from './_db.mjs';
 
@@ -198,6 +198,9 @@ export async function run(ctx) {
     await page.waitForSelector('[data-message-id]', { timeout: 10_000 });
 
     await shoot('05-group-info', async () => {
+      // 上一步的转发对话框还开着，会挡住点击 —— 先关掉
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
       await page.click('button[title*="群信息"]');
       await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
     });
@@ -221,10 +224,65 @@ export async function run(ctx) {
 
     await shoot('08-dark-chat', async () => {
       await page.keyboard.press('Escape');
-      // 切深色主题：点右下角主题按钮（比直接写 localStorage 更接近真实操作）
       await page.click('button:has-text("🌙"), button:has-text("☀️")');
       await page.waitForTimeout(300);
     });
+
+    // ---- 协议扩展引入的新 UI（置顶/表情/编辑态/转发框）----
+    // 数据**在后**注入：前面那些基线是老状态，数据一变它们就全红，
+    // 那会白白丢掉已有的回归网。
+    await page.click('button:has-text("🌙"), button:has-text("☀️")'); // 切回浅色
+    await page.waitForTimeout(300);
+
+  // 追加两个状态需要的数据：置顶第一条、给第二条加两个表情。
+  // 都用 WS 直接调 op，避免依赖 UI 操作时序（截图要可复现）。
+  const firstMsg = expectOk(
+    await a.request('message.send', {
+      conv_id: conv.id,
+      client_msg_id: 'visual-pin-src',
+      content: [{ type: 'text', text: '这条被置顶了' }],
+    }),
+    '发一条用于置顶的消息',
+  );
+  expectOk(
+    await a.request('message.pin', { conv_id: conv.id, message_id: firstMsg.message_id }),
+    '置顶它',
+  );
+  expectOk(
+    await a.request('reaction.add', {
+      conv_id: conv.id,
+      message_id: firstMsg.message_id,
+      emoji: '👍',
+    }),
+    '加 👍',
+  );
+
+    // 置顶横幅 + 表情 chip（协议扩展 §2/§4 的新 UI）
+    await shoot('09-pinned-and-reactions', async () => {
+      await page.waitForSelector('text=置顶：', { timeout: 10_000 });
+      await page.waitForSelector('[aria-label*="👍"]', { timeout: 10_000 });
+    });
+
+    // 编辑态输入框（右键自己的消息 → 编辑）
+    await shoot('10-editing', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.click('role=menuitem[name="编辑"]');
+      await page.waitForSelector('text=正在编辑这条消息', { timeout: 10_000 });
+    });
+
+    // 转发对话框（右键 → 转发）
+    await shoot('11-forward-dialog', async () => {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(150);
+      await page.locator('[data-message-id]').last().click({ button: 'right' });
+      await page.click('role=menuitem[name="转发"]');
+      await page.waitForSelector('[role="dialog"]', { timeout: 10_000 });
+      await page.waitForTimeout(200);
+    });
+
+
   } finally {
     await page.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
@@ -272,7 +330,11 @@ export async function run(ctx) {
   }
 
   const compared = results.filter((r) => r.status === 'compared');
-  eq(results.length, 8, `共 8 张截图（基础页 + 弹窗/菜单/搜索/深色），其中 ${compared.length} 张与基线比对`);
+  eq(
+    results.length,
+    11,
+    `共 11 张截图（基础页 + 弹窗/菜单/搜索/深色 + 置顶与表情/编辑态/转发框），其中 ${compared.length} 张与基线比对`,
+  );
   ok(true, `基线目录：${BASELINE_DIR}；diff 输出：${DIFF_DIR}`);
 
   return summary('visual');
