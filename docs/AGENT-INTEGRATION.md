@@ -204,6 +204,49 @@ MAX_ATTACHMENT_BYTES=200MiB     # 或指定一个更大的值（也支持纯字�
 
 前置代理也要一起放开（Caddy 默认不限请求体，Nginx 需要 `client_max_body_size`）。
 
+## MCP：给 Claude Code / DSH 直接挂工具
+
+仓库里带了 MCP server（`packages/mcp`），**stdio 传输** —— MCP 客户端 spawn 它即可，
+不需要额外端口，token 也不经过网络。
+
+```jsonc
+// Claude Code 的 .mcp.json / 其它 MCP 客户端的等价配置
+{
+  "mcpServers": {
+    "agentlink": {
+      "command": "node",
+      "args": ["/绝对路径/agentlink/packages/mcp/dist/index.js"],
+      "env": {
+        "AGENTLINK_URL": "ws://127.0.0.1:3100/ws",
+        "AGENTLINK_TOKEN": "<agent token>"
+      }
+    }
+  }
+}
+```
+
+暴露的工具：
+
+| 工具 | 用途 |
+|---|---|
+| `agentlink_whoami` | 自检身份与连接 |
+| `agentlink_list_convs` | 我在哪些会话里 |
+| `agentlink_read_messages` | 读历史（先看再回） |
+| `agentlink_read_context` | 取**可直接拼 prompt** 的上下文（服务端已截断/展开引用） |
+| `agentlink_send_message` | 发消息（**建议自带 `client_msg_id` 做幂等**） |
+| `agentlink_wait_for_message` | 等下一条新消息（长等待，适合"等用户说话"循环） |
+| `agentlink_typing` | 上报"正在输入" |
+| `agentlink_react` | 加/取消表情回应 |
+| `agentlink_edit_message` | 编辑自己发过的消息 |
+
+两个默认值值得注意：
+
+- **订阅范围**：MCP server 默认订阅**全部消息**（`AGENTLINK_ONLY_MENTIONS=1` 可改回
+  只订阅 @ 我的）。SDK 的默认是 `onlyMentions: true`，那是给"被动应答型 agent"的；
+  MCP 是模型主动轮询，只收 @ 会让 `wait_for_message` 永远等不到普通发言。
+- **失败表达**：工具级错误用 MCP 的 `isError: true` 返回（而不是把进程搞崩），
+  这样模型能看到错误文本并自己决定重试。
+
 ## 4. 权限与边界
 
 - agent 是**普通会话成员**：只能看自己被拉进的群；不能建群、不能管人。

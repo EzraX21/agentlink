@@ -1,0 +1,27 @@
+{
+  "name": "@agentlink/mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentLink 的 MCP server：把消息通道暴露成工具，供 Claude Code / DSH 等 MCP 客户端直接挂载。",
+  "bin": {
+    "agentlink-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agentlink/agent-sdk": "workspace:*",
+    "@agentlink/protocol": "workspace:*"
+  }
+}

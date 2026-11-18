@@ -40,6 +40,7 @@
 | **扩展 5**：`message.pin/unpin` 置顶 | ✅ | 2026-11-17 | `run.mjs ext-pin` | 22 |
 | **扩展 6**：`message.forward` 转发 | ✅ | 2026-11-17 | `run.mjs ext-forward` | 24 |
 | **外部 agent HTTP+SSE 接入面** | ✅ | 2026-11-17 | `run.mjs agent-http` | 31（含 SSE 真流） |
+| **MCP server**（Claude Code / DSH 挂工具） | ✅ | 2026-11-18 | `run.mjs mcp` | 38（真 stdio JSON-RPC） |
 | 外部 agent 流式回复（HTTP）+ Last-Event-ID | ✅ | 2026-11-17 | `run.mjs agent-http` | 51 |
 | 外部 agent 发附件（上传 + 便捷拼块） | ✅ | 2026-11-17 | `run.mjs agent-http` | 67 |
 | 解除附件大小上限（流式落盘） | ✅ | 2026-11-17 | `run.mjs ext-large-file` | 15（25 MiB 往返） |

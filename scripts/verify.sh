@@ -21,6 +21,11 @@ if [ -z "${DOCKER_CONFIG:-}" ]; then
   mkdir -p "$DOCKER_CONFIG"
 fi
 
+# 协议扩展 / 外部 agent 接入 / MCP 的套件。
+# 单独列出来是因为它们**必须**在默认门禁里：新增功能不进 verify.sh
+# 等于"写了测试但没人跑"，比没有测试更糟。
+EXT_SUITES="agent-http ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file mcp"
+
 WITH_DOCKER=1
 WITH_BROWSER=1
 for arg in "$@"; do
@@ -58,9 +63,9 @@ if [ "$WITH_BROWSER" -ne 1 ]; then
 fi
 
 if [ "$WITH_DOCKER" -eq 1 ]; then
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media ui-ux ui-browser"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media ui-ux ui-browser ${EXT_SUITES}"
 else
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media ui-ux ui-browser"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media ui-ux ui-browser ${EXT_SUITES}"
   echo "（已跳过 m10：--no-docker）"
 fi
 

@@ -51,6 +51,8 @@ export const MILESTONES = [
   'ext-pin',
   // 转发（协议扩展 §6）
   'ext-forward',
+  // MCP server（外部 AI 客户端的工具协议）
+  'mcp',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */
