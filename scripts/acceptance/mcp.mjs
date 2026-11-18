@@ -200,8 +200,80 @@ export async function run(ctx) {
     ok(react.result.isError !== true, '加表情成功');
     ok(react.result.content[0].text.includes('👍'), '返回的汇总里有 👍');
 
-    section('7. wait_for_message：等人类说话');
-    const waitPromise = mcp.request('tools/call', {
+    section('6b. tools/call：转发与置顶（协议扩展 §4 / §6）');
+    {
+      // 转发需要目标会话：agent 不在的群它发不进去，所以先让人类把 agent 拉进去。
+      const conv2 = expectOk(
+        await human.request('conv.create', {
+          kind: 'group',
+          title: '转发目标群',
+          member_ids: [agentId],
+        }),
+        '建第二个群（含 agent）',
+      ).conv;
+
+      const fwd = await mcp.request('tools/call', {
+        name: 'agentlink_forward_message',
+        arguments: {
+          from_conv_id: conv.id,
+          to_conv_id: conv2.id,
+          message_id: sentBody.message_id,
+        },
+      });
+      ok(fwd.result.isError !== true, `转发成功${fwd.result.isError ? `：${fwd.result.content[0].text}` : ''}`);
+      const fwdBody = JSON.parse(fwd.result.content[0].text);
+      ok(typeof fwdBody.message_id === 'string', '返回了新的 message_id');
+      ok(typeof fwdBody.seq === 'number', '返回了新的 seq');
+
+      // 目标群里真的多了一条消息（人类那边能读到）
+      const target = expectOk(
+        await human.request('history.fetch', { conv_id: conv2.id, limit: 10 }),
+        '读目标群历史',
+      );
+      ok(
+        target.messages.some((m) => m.id === fwdBody.message_id),
+        '转发后的消息出现在目标群里',
+      );
+
+      // 置顶需要 owner/admin（权限矩阵 §10）：先把 agent 提成 admin。
+      // 提成之前必须**先证明**普通成员被拒 —— 否则"没提成也能置顶"会被当成成功。
+      const pinDenied = await mcp.request('tools/call', {
+        name: 'agentlink_pin_message',
+        arguments: { conv_id: conv.id, message_id: sentBody.message_id },
+      });
+      eq(pinDenied.result.isError, true, '普通成员的置顶被拒（isError）');
+      ok(
+        pinDenied.result.content[0].text.includes('PERM_DENIED'),
+        `拒绝原因写明了 PERM_DENIED（实际：${pinDenied.result.content[0].text.slice(0, 60)}）`,
+      );
+
+      expectOk(
+        await human.request('member.role.set', {
+          conv_id: conv.id,
+          user_id: agentId,
+          role: 'admin',
+        }),
+        '把 agent 提成 admin',
+      );
+
+      const pin = await mcp.request('tools/call', {
+        name: 'agentlink_pin_message',
+        arguments: { conv_id: conv.id, message_id: sentBody.message_id },
+      });
+      ok(pin.result.isError !== true, `置顶成功${pin.result.isError ? `：${pin.result.content[0].text}` : ''}`);
+      const pinConv = JSON.parse(pin.result.content[0].text);
+      eq(pinConv.pinned_message_id, sentBody.message_id, '会话里带上了置顶的消息 id');
+
+      const unpin = await mcp.request('tools/call', {
+        name: 'agentlink_pin_message',
+        arguments: { conv_id: conv.id, unpin: true },
+      });
+      ok(unpin.result.isError !== true, '取消置顶成功');
+      const unpinConv = JSON.parse(unpin.result.content[0].text);
+      eq(unpinConv.pinned_message_id, null, '取消后置顶消息 id 为空');
+    }
+
+    section('7. wait_for_message：等人类说话');    const waitPromise = mcp.request('tools/call', {
       name: 'agentlink_wait_for_message',
       arguments: { timeout_ms: 8000 },
     });

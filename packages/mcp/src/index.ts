@@ -327,6 +327,60 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'agentlink_forward_message',
+    description:
+      '把一条消息转发到另一个会话（可以是跨群的）。附件会一起带过去，权限按目标群的成员身份判定。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from_conv_id: { type: 'string', description: '原消息所在的会话 id' },
+        to_conv_id: { type: 'string', description: '转发到哪个会话 id' },
+        message_id: { type: 'string', description: '要转发的消息 id' },
+      },
+      required: ['from_conv_id', 'to_conv_id', 'message_id'],
+    },
+    run: async (args) => {
+      const c = await getClient();
+      const res = await c.call<{ message_id: string; seq: number; created_at: number }>(
+        'message.forward',
+        {
+          from_conv_id: str(args, 'from_conv_id'),
+          conv_id: str(args, 'to_conv_id'),
+          message_id: str(args, 'message_id'),
+        },
+      );
+      return JSON.stringify(res, null, 2);
+    },
+  },
+  {
+    name: 'agentlink_pin_message',
+    description:
+      '置顶 / 取消置顶一条消息。**需要 admin 或 owner 角色**（与改群名同级）。一个会话同时只有一条置顶消息，置新的会顶掉旧的。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conv_id: { type: 'string' },
+        message_id: { type: 'string', description: '取消置顶时不需要' },
+        unpin: { type: 'boolean', description: 'true = 取消置顶' },
+      },
+      required: ['conv_id'],
+    },
+    run: async (args) => {
+      const c = await getClient();
+      if (args['unpin'] === true) {
+        const res = await c.call<{ conv: unknown }>('message.unpin', {
+          conv_id: str(args, 'conv_id'),
+        });
+        return JSON.stringify(res.conv, null, 2);
+      }
+      const res = await c.call<{ conv: unknown }>('message.pin', {
+        conv_id: str(args, 'conv_id'),
+        message_id: str(args, 'message_id'),
+      });
+      return JSON.stringify(res.conv, null, 2);
+    },
+  },
+  {
     name: 'agentlink_read_context',
     description:
       '取一段**可直接拼进 prompt** 的会话上下文（服务端已做截断与引用展开）。这是本系统相对"自己攒历史"的核心差异。',
