@@ -16,10 +16,12 @@ import type { Message } from '@agentlink/protocol';
 
 const acquireAttachmentUrl = vi.fn();
 const releaseAttachmentUrl = vi.fn();
+const fetchAttachmentThumbnail = vi.fn();
 
 vi.mock('../lib/attachments.js', () => ({
   acquireAttachmentUrl: (...args: unknown[]) => acquireAttachmentUrl(...args),
   releaseAttachmentUrl: (...args: unknown[]) => releaseAttachmentUrl(...args),
+  fetchAttachmentThumbnail: (...args: unknown[]) => fetchAttachmentThumbnail(...args),
   uploadAttachment: vi.fn(),
   downloadAttachment: vi.fn(),
   formatBytes: (n: number) => `${Math.round(n / 1024)} KB`,
@@ -30,6 +32,9 @@ vi.mock('../lib/attachments.js', () => ({
 beforeEach(() => {
   acquireAttachmentUrl.mockReset();
   releaseAttachmentUrl.mockReset();
+  fetchAttachmentThumbnail.mockReset();
+  // 默认没有缩略图（服务端没装 ffmpeg / 不是视频）
+  fetchAttachmentThumbnail.mockResolvedValue(null);
 });
 
 function viewerProps(overrides: Partial<React.ComponentProps<typeof MediaViewer>> = {}) {
@@ -155,6 +160,42 @@ describe('视频预览', () => {
     render(<VideoBlockView attachmentId="a_v" filename="demo.mp4" />);
     fireEvent.click(screen.getByRole('button', { name: '播放 demo.mp4' }));
     await waitFor(() => expect(screen.getByText('404')).toBeTruthy());
+  });
+});
+
+describe('视频缩略图', () => {
+  it('有缩略图时渲染 <img>（不是 🎬 图标）', async () => {
+    fetchAttachmentThumbnail.mockResolvedValueOnce('blob:thumb');
+    const { container } = render(<VideoBlockView attachmentId="a_v" filename="demo.mp4" size={2048} />);
+    await waitFor(() => {
+      const img = container.querySelector('img');
+      expect(img).not.toBeNull();
+      expect(img?.getAttribute('src')).toBe('blob:thumb');
+    });
+  });
+
+  it('缩略图仍然**不**预载视频本体（只拉几十 KB 的图）', async () => {
+    fetchAttachmentThumbnail.mockResolvedValueOnce('blob:thumb');
+    render(<VideoBlockView attachmentId="a_v" filename="demo.mp4" size={2048} />);
+    await waitFor(() => expect(fetchAttachmentThumbnail).toHaveBeenCalledWith('a_v'));
+    expect(acquireAttachmentUrl).not.toHaveBeenCalled();
+  });
+
+  it('没有缩略图时退回纯文字卡片（不渲染坏图）', async () => {
+    fetchAttachmentThumbnail.mockResolvedValueOnce(null);
+    const { container } = render(<VideoBlockView attachmentId="a_v" filename="demo.mp4" size={2048} />);
+    await waitFor(() => expect(fetchAttachmentThumbnail).toHaveBeenCalled());
+    expect(container.querySelector('img')).toBeNull();
+    // 播放按钮还在
+    expect(screen.getByRole('button', { name: '播放 demo.mp4' })).toBeTruthy();
+  });
+
+  it('缩略图取失败时不报错，卡片照常显示', async () => {
+    fetchAttachmentThumbnail.mockRejectedValueOnce(new Error('boom'));
+    const { container } = render(<VideoBlockView attachmentId="a_v" filename="demo.mp4" size={2048} />);
+    await waitFor(() => expect(fetchAttachmentThumbnail).toHaveBeenCalled());
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('button', { name: '播放 demo.mp4' })).toBeTruthy();
   });
 });
 

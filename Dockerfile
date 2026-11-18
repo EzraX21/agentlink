@@ -48,6 +48,13 @@ RUN pnpm prune --prod
 # ---- 运行阶段：只带产物 ----
 FROM node:24-bookworm-slim AS runtime
 
+# ffmpeg：视频附件上传时抽一帧做缩略图（客户端列表里显示画面而不是黑框）。
+# 体积可控（ffmpeg 本体 ~290 KB，共享库 ~40 MB），且是**可选** ——
+# 没装它服务端会跳过缩略图生成，其余功能不受影响。
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000

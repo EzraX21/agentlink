@@ -61,7 +61,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
-**默认门禁共 25 个套件**（`./scripts/verify.sh` 全跑）：
+**默认门禁共 26 个套件**（`./scripts/verify.sh` 全跑）：
 
 | 分组 | 套件 |
 |---|---|
@@ -69,6 +69,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 | Web 客户端 | `ui-admin` / `ui-media` / `ui-ux` / `ui-browser`（真 Chromium） |
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
+| 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
 
 另有 **2 个按需套件**不进默认门禁（原因：`perf` 怕机器抖动、`visual` 基线按机器）：
 `perf`（→ `reports/perf.md`）与 `visual`（11 张截图基线）。
@@ -175,6 +176,25 @@ VITE_API_BASE=https://api.example.com pnpm --filter @agentlink/web build
 
 `CORS_ORIGINS` 是白名单，**不支持 `*`**（请求带 Authorization，通配符会泄露 token）。
 细节与验收方式见 [`docs/DEPLOY-SPLIT.md`](docs/DEPLOY-SPLIT.md)。
+
+## 视频缩略图
+
+服务端在**上传时**用 ffmpeg 抽一帧存成 JPEG，客户端消息里的视频附件直接显示画面，
+不用下载整个视频。
+
+```
+上传 clip.mp4 → 服务端 ffmpeg 抽第 1 秒那帧 → 缩到最长边 480 → 存 thumbs/<分片>/<sha>.jpg
+GET /api/attachments/:id/thumbnail  → image/jpeg（没有缩略图时 404）
+```
+
+- **权限与本体下载一致**：非群成员拿缩略图 → 403，匿名 → 401。
+  （不然知道 `attachment_id` 就能看到别人群里的画面。）
+- **ffmpeg 是可选依赖**：没装就跳过缩略图生成，上传照常成功，客户端退回纯文字卡片。
+  Docker 镜像里已经装了。
+- 缩略图是**单帧 JPEG**，大小与视频时长无关（实测 6 秒 640×480 的视频：
+  本体 2.3 MB → 缩略图 18 KB）。
+
+验收：`node scripts/acceptance/run.mjs video-thumb`（没装 ffmpeg 时自动跳过）。
 
 ## 环境注意
 

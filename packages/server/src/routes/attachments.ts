@@ -135,4 +135,36 @@ export async function attachmentRoutes(
       return sendError(reply, err);
     }
   });
+
+  /**
+   * 视频缩略图。
+   *
+   * 没有缩略图时回 **404**（而不是 200 + 空体）：客户端据此退回视频卡片，
+   * 不会把 0 字节当成一张坏图渲染。
+   *
+   * 权限与本体下载一致 —— 知道 attachment_id 不该能看别人群里的画面。
+   */
+  app.get<{ Params: { id: string } }>('/api/attachments/:id/thumbnail', async (req, reply) => {
+    try {
+      const who = await requireUser(services, req.headers);
+      const id = req.params.id;
+      const thumb = await svc.loadThumbnail({ attachmentId: id, userId: who.userId });
+      if (thumb === null) {
+        return reply.code(404).send({
+          error: { code: 'NOT_FOUND', message: '该附件没有缩略图', details: { what: 'thumbnail' } },
+        });
+      }
+      return reply
+        .code(200)
+        .headers({
+          'content-type': thumb.mime,
+          'content-length': String(thumb.data.byteLength),
+          'cache-control': 'private, max-age=3600',
+          'x-content-type-options': 'nosniff',
+        })
+        .send(thumb.data);
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
 }

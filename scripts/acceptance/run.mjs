@@ -55,6 +55,8 @@ export const MILESTONES = [
   'mcp',
   // 前后端分离部署
   'split',
+  // 视频缩略图（服务端 ffmpeg 抽帧）
+  'video-thumb',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

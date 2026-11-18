@@ -223,6 +223,29 @@ export function releaseAttachmentUrl(attachmentId: string): void {
   if (entry.url !== '') URL.revokeObjectURL(entry.url);
 }
 
+// ---------------------------------------------------------------------------
+// 视频缩略图
+// ---------------------------------------------------------------------------
+
+/**
+ * 缩略图的 URL（不缓存成 blob）。
+ *
+ * 与本体不同：缩略图是**服务端生成的小 JPEG**，几十 KB，
+ * 直接让 `<img src>` 去请求就行 —— 但仍要带鉴权头，而 `<img>` 带不了自定义头。
+ *
+ * 所以走 blob：先用 fetch 取字节，再给 `<img>`。用 fetch 而不是 XHR 是因为
+ * 缩略图很小，不值得为进度上报开 XHR。
+ */
+export async function fetchAttachmentThumbnail(attachmentId: string): Promise<string | null> {
+  const res = await fetch(apiUrl(`/api/attachments/${encodeURIComponent(attachmentId)}/thumbnail`), {
+    headers: authHeader(),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`缩略图读取失败 (${res.status})`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 /** 让人读的大小：1.2 MB / 340 KB / 12 B。 */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '—';

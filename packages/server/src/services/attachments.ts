@@ -13,6 +13,7 @@ import {
 } from '../db/queries.js';
 import type { AttachmentRow } from '../db/schema.js';
 import { newAttachmentId, nowMs } from '../ids.js';
+import { generateVideoThumbnail, isVideoFile, thumbnailAbsPath } from './thumbnails.js';
 
 /**
  * 附件（实现计划 M7）。
@@ -235,7 +236,34 @@ export class AttachmentService {
       return this.#record({ sha256, filename, mime, size: total, uploaderId: input.uploaderId, relPath });
     }
     await rename(tmpPath, absPath);
-    return this.#record({ sha256, filename, mime, size: total, uploaderId: input.uploaderId, relPath });
+    const stored = this.#record({
+      sha256,
+      filename,
+      mime,
+      size: total,
+      uploaderId: input.uploaderId,
+      relPath,
+    });
+    // 视频抽一帧做缩略图（失败不影响上传 —— 见 services/thumbnails.ts）
+    await this.#maybeThumbnail(stored, absPath);
+    return stored;
+  }
+
+  /**
+   * 视频附件顺带抽一帧存成 JPEG，客户端列表里显示缩略图而不是黑框。
+   *
+   * 任何失败都吞掉：缩略图是**锦上添花**，不能让它把一次成功的上传变成 500。
+   */
+  async #maybeThumbnail(stored: StoredAttachment, absPath: string): Promise<void> {
+    if (!isVideoFile(stored.mime, stored.filename)) return;
+    try {
+      await generateVideoThumbnail({
+        sourcePath: absPath,
+        destPath: thumbnailAbsPath(this.uploadsDir, stored.sha256),
+      });
+    } catch {
+      // 忽略：没有缩略图而已
+    }
   }
 
   /** 落一条 attachments 记录（同 sha256 复用已有 id，避免一份内容多个 id）。 */
@@ -320,6 +348,27 @@ export class AttachmentService {
     if (!row) return;
     const absPath = resolve(this.uploadsDir, row.path);
     await unlink(absPath).catch(() => undefined);
+  }
+
+  /**
+   * 取缩略图字节。没有缩略图（不是视频 / 没装 ffmpeg / 抽帧失败）时返回 null。
+   *
+   * 权限判定与本体下载**完全一致**（同一个 `#canAccess`）——
+   * 否则知道 attachment_id 就能拿到别人群里的视频画面。
+   */
+  async loadThumbnail(input: {
+    attachmentId: string;
+    userId: string;
+  }): Promise<{ data: Buffer; mime: string } | null> {
+    const row = findAttachment(this.db, input.attachmentId);
+    if (row === undefined) return null;
+    if (!this.#canAccess(row, input.userId)) {
+      throw new AgentLinkError('PERM_DENIED', '你不是该附件所在会话的成员');
+    }
+    const absPath = thumbnailAbsPath(this.uploadsDir, row.sha256);
+    const data = await readFile(absPath).catch(() => null);
+    if (data === null) return null;
+    return { data, mime: 'image/jpeg' };
   }
 
   /** 消息 content 里引用附件时，校验其存在性与可见性（发消息前的校验）。 */

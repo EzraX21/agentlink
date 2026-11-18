@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   acquireAttachmentUrl,
   downloadAttachment,
+  fetchAttachmentThumbnail,
   formatBytes,
   releaseAttachmentUrl,
 } from '../lib/attachments.js';
@@ -127,10 +128,13 @@ export function ImageBlockView({
 
 /** 文件块：名称 + 大小 + 下载（同样走带鉴权的 fetch）。 */
 /**
- * 视频块：卡片 + 「播放」，点开才取字节并在弹窗里播放。
+ * 视频块：缩略图 + 「播放」，点开才取字节并在弹窗里播放。
  *
- * 不预载的原因和文件一样：群里贴 20 段视频，进群就把 20 个视频全拉一遍，
+ * 不预载**视频本体**的原因和文件一样：群里贴 20 段视频，进群就把 20 个视频全拉一遍，
  * 流量和内存都白费（而且浏览器还会去解析元数据）。
+ *
+ * 但**缩略图**要预载：那是一张几十 KB 的 JPEG，服务端在上传时就抽好了。
+ * 没有缩略图（服务端没装 ffmpeg / 不是视频）就退回纯文字卡片。
  */
 export function VideoBlockView({
   attachmentId,
@@ -145,7 +149,30 @@ export function VideoBlockView({
   const [percent, setPercent] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [thumb, setThumb] = useState<string | null>(null);
   const name = filename ?? '视频';
+
+  // 缩略图单独取：失败（404 / 无 ffmpeg）不影响卡片本身
+  useEffect(() => {
+    let alive = true;
+    let objectUrl: string | null = null;
+    fetchAttachmentThumbnail(attachmentId)
+      .then((u) => {
+        if (!alive) {
+          if (u !== null) URL.revokeObjectURL(u);
+          return;
+        }
+        objectUrl = u;
+        setThumb(u);
+      })
+      .catch(() => {
+        // 没有缩略图：退回纯文字卡片
+      });
+    return () => {
+      alive = false;
+      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
+    };
+  }, [attachmentId]);
 
   async function open(): Promise<void> {
     if (loading) return;
@@ -170,9 +197,25 @@ export function VideoBlockView({
         className="mt-1 flex max-w-[340px] items-center gap-2 rounded-lg px-2 py-2"
         style={{ background: 'var(--al-bg-hover)' }}
       >
-        <span aria-hidden style={{ fontSize: 18 }}>
-          🎬
-        </span>
+        {thumb !== null ? (
+          <img
+            src={thumb}
+            alt=""
+            style={{
+              width: 72,
+              height: 48,
+              objectFit: 'cover',
+              borderRadius: 6,
+              flexShrink: 0,
+              cursor: 'pointer',
+            }}
+            onClick={() => void open()}
+          />
+        ) : (
+          <span aria-hidden style={{ fontSize: 18 }}>
+            🎬
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px]">{name}</div>
           <div className="al-muted text-[11px]">
