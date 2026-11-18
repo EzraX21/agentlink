@@ -21,7 +21,8 @@ node scripts/acceptance/run.mjs perf     # 性能实测 → reports/perf.md
 node scripts/acceptance/run.mjs visual   # 截图像素回归（11 张基线）
 ```
 
-最近一次全量：**27 个套件全绿，exit 0**；web 单测 **152 项**；协议单测 27 项（32 个 op）。
+最近一次全量：**28 个套件全绿，exit 0**（另 2 个按需套件 `perf` / `visual`）；
+web 单测 **148 项**；协议单测 27 项（32 个 op）；Qt 协议核心单测 37 项。
 
 ## 2. 里程碑与验收证据
 
@@ -52,7 +53,7 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（11 张基线）
 | `visual` | 11 张关键页截图像素回归 + 深色亮度客观校验 | 14 |
 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` | 协议扩展 6 项 | 18 / 28 / 30 / 29 / 22 / 24 |
 | `agent-http` | 外部 agent 的 HTTP + SSE 接入面 | 67 |
-| `mcp` | MCP server（真 stdio JSON-RPC 子进程 + HTTP 传输，11 个工具） | 58 |
+| `mcp` | MCP server（真 stdio JSON-RPC 子进程 + HTTP 传输，11 个工具） | 69 |
 | `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
 | `split` | 前后端分离部署（真跨域：独立静态服务器 + CORS + 真浏览器） | 26 |
 | `video-thumb` | 视频缩略图（真上传视频 → ffmpeg 抽帧 → JPEG） | 21 |
@@ -112,7 +113,7 @@ AgentLink 只提供消息通道，智能在调用方：
 
 | 方式 | 入口 | 验收 |
 |---|---|---|
-| **MCP server**（stdio + HTTP，11 个工具） | `packages/mcp` | `mcp`（58 项） |
+| **MCP server**（stdio + HTTP，11 个工具） | `packages/mcp` | `mcp`（69 项） |
 | **HTTP + SSE** | `/api/agent/*`：self / convs / history / messages（幂等）/ attachments / typing / stream（NDJSON 流式）/ events（SSE + Last-Event-ID） | `agent-http`（67 项） |
 | **WebSocket SDK** | `@agentlink/agent-sdk` | `m9`（37 项） |
 

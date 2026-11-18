@@ -61,7 +61,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
-**默认门禁共 26 个套件**（`./scripts/verify.sh` 全跑）：
+**默认门禁共 28 个套件**（`./scripts/verify.sh` 全跑）：
 
 | 分组 | 套件 |
 |---|---|
