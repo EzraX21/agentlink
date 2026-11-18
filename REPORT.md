@@ -1,10 +1,11 @@
 # 交付报告
 
-> 一句话：AgentLink v1（M0–M11）全部实现并通过验收；Web 客户端在**不扩协议**的范围内
-> 已对齐 Telegram Desktop 的主要常用功能；剩余功能全部阻塞在"需要新增 op/evt"，
-> 方案已备好（见第 6 节 `docs/PROPOSAL-protocol-ext.md`），等你批准。
+> 一句话：AgentLink v1（M0–M11）全部实现并通过验收；Web 客户端已对齐 Telegram Desktop
+> 的主要常用功能；协议扩展 6 项全部落地；**前后端部署真正分离**（两个镜像、两个服务）；
+> 另有一个基于 Qt/C++ 的原生桌面客户端（`packages/qt-client`），按"填服务器地址"的
+> 方式连任意一台部署好的服务端。
 
-生成时间：2026-11-17 · 代码位置：`agentlink/`（独立 git 仓库）
+生成时间：2026-11-18 · 代码位置：`agentlink/`（独立 git 仓库）
 
 ---
 
@@ -15,12 +16,12 @@ cd agentlink
 export XDG_RUNTIME_DIR="$PWD/../.runtime"
 export PLAYWRIGHT_BROWSERS_PATH="$PWD/../.runtime/pw-browsers"
 
-./scripts/verify.sh        # 构建 + 类型 + 单测 + 16 个验收套件（含 Docker 与真浏览器）
+./scripts/verify.sh        # 构建 + 类型 + 单测 + 全部验收套件（含 Docker 与真浏览器）
 node scripts/acceptance/run.mjs perf     # 性能实测 → reports/perf.md
-node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
+node scripts/acceptance/run.mjs visual   # 截图像素回归（11 张基线）
 ```
 
-最近一次全量：**25 个套件全绿，exit 0**；web 单测 **138 项**；协议单测 27 项（32 个 op）。
+最近一次全量：**27 个套件全绿，exit 0**；web 单测 **152 项**；协议单测 27 项（32 个 op）。
 
 ## 2. 里程碑与验收证据
 
@@ -48,11 +49,14 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 | `ui-ux` | 引用回复、右键菜单、草稿、未读、置顶、富文本、打字降级、离线队列、可访问性 | 132 |
 | `ui-browser` | **真 Chromium** 端到端：登录/发消息/流式/上传/搜索/管理页/窄屏/断线重连/离线队列 | 37 |
 | `perf` | 1000 条消息的帧率与长任务 → `reports/perf.md` | 18 |
-| `visual` | 8 张关键页截图像素回归 + 深色亮度客观校验 | 10 |
+| `visual` | 11 张关键页截图像素回归 + 深色亮度客观校验 | 14 |
 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` | 协议扩展 6 项 | 18 / 28 / 30 / 29 / 22 / 24 |
 | `agent-http` | 外部 agent 的 HTTP + SSE 接入面 | 67 |
-| `mcp` | MCP server（真 stdio JSON-RPC 子进程） | 38 |
+| `mcp` | MCP server（真 stdio JSON-RPC 子进程 + HTTP 传输，11 个工具） | 58 |
 | `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
+| `split` | 前后端分离部署（真跨域：独立静态服务器 + CORS + 真浏览器） | 26 |
+| `video-thumb` | 视频缩略图（真上传视频 → ffmpeg 抽帧 → JPEG） | 21 |
+| `qt-client` | **Qt/C++ 桌面客户端**（协议核心 + 引导 + 聊天） | 见第 7 节 |
 
 ## 3. 六条验收标准的落点
 
@@ -98,22 +102,75 @@ node scripts/acceptance/run.mjs visual   # 截图像素回归（8 张基线）
 设计要点：瞬时 vs 持久化事件严格区分（打字/已读不落库，回应/编辑/置顶可补发）；
 转发不新增事件；附件随 `attachment_id` 跨会话，权限按"引用它的群"判定。
 
+置顶的权限是 **owner/admin**（与改群名同级，权限矩阵 §10）—— agent 默认是普通成员，
+所以 `agentlink_pin_message` 会先被拒，除非人类把它提成 admin。验收里**先证明被拒、
+再提成、再成功**，避免"没提成也能过"这种假阳性。
+
 ## 5c. 外部 agent 接入（三种方式，都不接模型）
 
 AgentLink 只提供消息通道，智能在调用方：
 
 | 方式 | 入口 | 验收 |
 |---|---|---|
-| **MCP server**（stdio，9 个工具） | `packages/mcp` | `mcp`（38 项） |
+| **MCP server**（stdio + HTTP，11 个工具） | `packages/mcp` | `mcp`（58 项） |
 | **HTTP + SSE** | `/api/agent/*`：self / convs / history / messages（幂等）/ attachments / typing / stream（NDJSON 流式）/ events（SSE + Last-Event-ID） | `agent-http`（67 项） |
 | **WebSocket SDK** | `@agentlink/agent-sdk` | `m9`（37 项） |
 
 文档 `docs/AGENT-INTEGRATION.md`；零模型依赖示例 `examples/http-agent`。
+
+## 5d. 部署形态：客户端与服务端真的分开
+
+之前只有**代码层**分开（`packages/web` 与 `packages/server` 是两个包），部署还是
+一个镜像（服务端顺带托管前端）。现在是两个镜像、两个服务：
+
+| 镜像 | 内容 | 验收怎么查 |
+|---|---|---|
+| `agentlink-server` | 只有 API + WebSocket（`ls /app/packages` → 只有 `protocol` `server`） | `m10` 真 `docker run` 进去查 |
+| `agentlink-web` | nginx + 静态产物（**连 node 都没有**） | `m10` 查 `command -v node` → none |
+
+- `server`：`PUBLIC_DIR=` 置空 → 不再托管前端，`/` 是 404
+- `web`：nginx 托管静态产物 + 反代 `/api` 与 `/ws`（含 Upgrade 头）
+- `caddy`：`profile: tls`，只做 TLS 终止 → `web:80`
+
+一个容易漏的点：nginx 里 **SSE 必须 `proxy_buffering off`**，否则
+`/api/agent/events` 的事件会被 nginx 攒着不发 —— agent 看起来"连上了但收不到消息"。
+
+真跨域形态另有一条验收（`split`）：起一个**独立的静态服务器**模拟 CDN →
+用它的端口作 `CORS_ORIGINS` 重启服务端 → 用**最终** API 地址构建客户端 →
+浏览器里真跑"跨域注册 → 登录 → WebSocket 连上"。
+
+细节见 [`docs/DEPLOY-SPLIT.md`](docs/DEPLOY-SPLIT.md)。
+
+## 5e. 视频缩略图
+
+服务端在**上传时**用 ffmpeg 抽一帧存成 JPEG（最长边 480），客户端消息里的视频附件
+直接显示画面，不用下载整个视频。
+
+- `GET /api/attachments/:id/thumbnail` → `image/jpeg`；没有缩略图时 **404**
+- 权限与本体下载**完全一致**：非群成员 403、匿名 401
+- ffmpeg 是**可选依赖**：没装就跳过生成，上传照常成功，客户端退回纯文字卡片
+- 缩略图是**单帧 JPEG**，大小与视频时长无关（实测 6 秒 640×480：本体 2.3 MB → 缩略图 18 KB）
+
+验收 `video-thumb`（21 项）。
+
+## 5f. Qt/C++ 桌面客户端
+
+`packages/qt-client` —— 原生桌面客户端，不是网页套壳。
+
+- **引导式**：第一次启动先填**服务器地址**（默认 `ws://127.0.0.1:3000`）→
+  再注册或登录 → 之后这个地址被记住，直接进聊天
+- **协议核心独立于 GUI**：`agentlink-core`（纯 C++，无 Qt 依赖）负责帧编解码、
+  认证握手、请求/响应路由、事件分发，可以脱离 GUI 单测
+- 构建：CMake + Qt 6（Core / Network / Widgets），不引入额外框架
+
+见第 7 节与 [`docs/QT-CLIENT.md`](docs/QT-CLIENT.md)。
 
 ## 6. 决策与坑的记录
 
 - `docs/DECISIONS.md`：FTS 触发器损坏、中文检索双路径、附件鉴权与 `<img>` 冲突、
   搜索 excerpt XSS、`group.update` 不推事件、离线队列与幂等键、视觉基线判真、
   协议扩展 6 项各自的事件语义取舍（瞬时 vs 持久化）、MCP 的订阅默认值等。
-- `docs/PROPOSAL-protocol-ext.md`：协议扩展提案（待审批，含 5 个待你拍板的问题）。
+- `docs/PROPOSAL-protocol-ext.md`：协议扩展提案（已获批准并全部落地）。
+- `docs/DEPLOY-SPLIT.md`：前后端分离部署的三种形态与验收。
+- `docs/QT-CLIENT.md`：桌面客户端的架构、构建与部署。
 - `docs/PROGRESS.md`：里程碑与套件的验收矩阵。

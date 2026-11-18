@@ -70,6 +70,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
 | 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
+| 桌面客户端 | `qt-client`（Qt/C++ 客户端协议核心 + 真连服务端端到端） |
 
 另有 **2 个按需套件**不进默认门禁（原因：`perf` 怕机器抖动、`visual` 基线按机器）：
 `perf`（→ `reports/perf.md`）与 `visual`（11 张截图基线）。

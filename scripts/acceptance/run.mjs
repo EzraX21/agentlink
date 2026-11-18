@@ -57,6 +57,8 @@ export const MILESTONES = [
   'split',
   // 视频缩略图（服务端 ffmpeg 抽帧）
   'video-thumb',
+  // Qt/C++ 桌面客户端（协议核心 + 真连服务端端到端）
+  'qt-client',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */
