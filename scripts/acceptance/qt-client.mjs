@@ -127,7 +127,20 @@ export async function run(ctx) {
     ok(healthy, `服务端健康（http://127.0.0.1:${port}）`);
     if (!healthy) throw new Error('服务端没有起来');
 
-    section('2. 协议层单测（不需要服务端）');
+    section('2. GUI 二进制能起来（平台插件 / 动态库都在位）');
+    // 不带显示环境也能验：`--version` 打印完就退出，不进事件循环。
+    // 这条能抓到"镜像缺 Qt 平台插件"或"动态库没打进去"这类问题 ——
+    // 只跑单测是抓不到的（单测是 GUILESS，不需要平台插件）。
+    const version = await docker([
+      'run', '--rm', '-e', 'QT_QPA_PLATFORM=offscreen', 'agentlink-qt:latest', '--version',
+    ]);
+    ok(
+      version.code === 0 && version.stdout.includes('agentlink-qt'),
+      `GUI 二进制可执行：${version.stdout.trim() || version.stderr.trim().slice(0, 300)}`,
+    );
+    ok(/Qt \d+\.\d+/.test(version.stdout), `带出 Qt 版本（${/Qt [0-9.]+/.exec(version.stdout)?.[0] ?? '无'}）`);
+
+    section('3. 协议层单测（不需要服务端）');
     // 镜像里已经构建好测试，直接 ctest；-E e2e 排除要连服务端的那个。
     // 注意 --entrypoint sh：镜像的 ENTRYPOINT 是 GUI 可执行文件，
     // 不覆盖的话 "sh -c ..." 会变成 GUI 程序的参数 → 它去开窗口 → 找不到 xcb 插件。
@@ -148,7 +161,7 @@ export async function run(ctx) {
       ok(new RegExp(`Test #[0-9]+: ${t}\\b`).test(tests.stdout), `跑了 ${t}`);
     }
 
-    section('3. 端到端：真连服务端');
+    section('4. 端到端：真连服务端');
     // 容器里的 127.0.0.1 指向它自己，不是宿主的服务端。
     // 用 --network host：容器直接走宿主网络，127.0.0.1:<port> 就是上面的服务端。
     // 直接跑二进制而不是 ctest：ctest 通过时会折叠 QTest 的用例细节
