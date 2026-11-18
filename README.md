@@ -152,6 +152,21 @@ curl -sX POST localhost:3000/api/admin/agents \
   -d '{"username":"echo","display_name":"回显助手"}'
 ```
 
+## 前后端分离部署
+
+默认同源（服务端带 `PUBLIC_DIR` 托管客户端）。要分开部署：
+
+```bash
+# 服务端：只管 API，并放行客户端来源
+PUBLIC_DIR= CORS_ORIGINS=https://app.example.com node packages/server/dist/index.js
+
+# 客户端：构建时指向服务端
+VITE_API_BASE=https://api.example.com pnpm --filter @agentlink/web build
+```
+
+`CORS_ORIGINS` 是白名单，**不支持 `*`**（请求带 Authorization，通配符会泄露 token）。
+细节与验收方式见 [`docs/DEPLOY-SPLIT.md`](docs/DEPLOY-SPLIT.md)。
+
 ## 环境注意
 
 - **`XDG_RUNTIME_DIR` 必须可写**。pnpm 会在那里放 store 操作锁；本机默认的

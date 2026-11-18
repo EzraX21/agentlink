@@ -242,12 +242,19 @@ MAX_ATTACHMENT_BYTES=200MiB     # 或指定一个更大的值（也支持纯字�
 **两种传输**：
 
 - **stdio**（默认）：本机客户端 spawn 子进程，零端口、token 不过网络。上面那段配置就是。
-- **HTTP**（远程客户端）：设 `AGENTLINK_MCP_HTTP_PORT=8765`，然后 `POST /mcp` 一个
-  JSON-RPC 即可（回 `application/json`，支持批量；纯通知回 202）。适合容器里的 DSH、
+- **HTTP**（远程客户端）：设 `AGENTLINK_MCP_HTTP_PORT=8765`。适合容器里的 DSH、
   另一台机器上的运行时 —— 它们没法 spawn 本地进程。
-  只开放 `POST /mcp`，其余路径 404（不做成通用 RPC 网关）。
-  没做 GET 推送流与 Session 管理：需要"等消息"用 `agentlink_wait_for_message`
-  工具（长轮询 30 秒）已经够，不必再引一条长连接和它自己的重连语义。
+
+HTTP 模式按 MCP Streamable HTTP 实现：
+
+| 方法 | 行为 |
+|---|---|
+| `POST /mcp` | 收 JSON-RPC（或一批），回 `application/json`；纯通知回 **202**；`initialize` 时回 `Mcp-Session-Id` |
+| `GET /mcp` | **服务器→客户端推送流（SSE）**：把 AgentLink 的新消息以 `notifications/message` 主动推给客户端，不必轮询 |
+| `DELETE /mcp` | 结束会话 |
+
+只有 `/mcp` 一个路径，其余 404（不做成通用 RPC 网关）。会话是进程内 Map ——
+MCP 客户端本来就与一个 server 进程一一对应，不需要跨进程共享。
 
 两个默认值值得注意：
 

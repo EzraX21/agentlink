@@ -6,6 +6,7 @@ import { loggerOptions } from './logger.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { registerStatic } from './routes/static.js';
+import { registerCors } from './routes/cors.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { searchRoutes } from './routes/search.js';
 import { agentRoutes } from './routes/agent.js';
@@ -202,6 +203,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
     await agentRoutes(instance, services);
   });
 
+  // 前后端分离：CORS 要在业务路由之前挂（预检要能直接 204 返回）
+  await registerCors(app, config.corsOrigins);
+
+  // 同源托管是可选的：设了 PUBLIC_DIR 才托管 Web 产物；
+  // 分离部署时把它留空，服务端就只提供 API 与 WS。
   await registerStatic(app, config.publicDir);
 
   gateway.attach(app.server);

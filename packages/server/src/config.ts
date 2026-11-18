@@ -34,6 +34,14 @@ export interface Config {
    * 注意：不限制时磁盘就是上限 —— 请配合前置代理的请求体限制使用。
    */
   readonly maxAttachmentBytes: number;
+  /**
+   * 前后端分离部署时允许的跨域来源（逗号分隔）。
+   *
+   * 同源托管（服务端带 `PUBLIC_DIR`）时留空即可 —— 不需要任何 CORS 头。
+   * 分离部署（客户端在 CDN / 另一个域名）时必须显式列出来源，
+   * **不允许**用 `*`：请求带 `Authorization`，通配符会把 token 暴露给任何站点。
+   */
+  readonly corsOrigins: readonly string[];
 }
 
 type Env = Record<string, string | undefined>;
@@ -130,5 +138,9 @@ export function loadConfig(env: Env = process.env): Config {
     hooksModule: env['HOOKS_MODULE'] ?? null,
     autoMigrate: bool(env, 'AUTO_MIGRATE', true),
     maxAttachmentBytes: parseByteLimit(env['MAX_ATTACHMENT_BYTES']),
+    corsOrigins: (env['CORS_ORIGINS'] ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o !== ''),
   };
 }

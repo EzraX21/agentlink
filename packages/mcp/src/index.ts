@@ -95,6 +95,8 @@ async function getClient(): Promise<Client> {
     // **过滤掉自己发的**：否则 wait_for_message 会把自己刚发的消息当成"有人说话"。
     c.onMessage((ctx) => {
       if (ctx.message.sender.id === c.id) return;
+      // HTTP 模式下：把新消息主动推给所有 SSE 流（客户端不必轮询）
+      broadcastMessage(formatMessage(ctx.message));
       const waiter = inboxWaiters.shift();
       if (waiter !== undefined) waiter(ctx.message);
       else inbox.push(ctx.message);
@@ -456,20 +458,99 @@ async function handle(req: RpcRequest): Promise<void> {
 // 为什么还要 HTTP：stdio 只能本机 spawn。远程客户端（容器里的 DSH、
 // 另一台机器上的 agent 运行时）没法 spawn 本地进程，只能连 URL。
 //
-// 实现取最小可用子集：POST /mcp 收一个 JSON-RPC（或一批），回 application/json。
-// **不做** GET 的服务器推送流与会话管理（Mcp-Session-Id）—— 需要推送的场景
-// 用 `agentlink_wait_for_message` 工具（长轮询 30 秒）已经够用，不必再引入
-// 一条长连接与它自己的断线重连语义。
+// 按 MCP 的 Streamable HTTP 实现三件事：
+//
+//   POST /mcp  收一个 JSON-RPC（或一批），回 application/json。
+//              initialize 时回 `Mcp-Session-Id` 头，之后的请求带上它就属于同一会话。
+//   GET  /mcp  服务器→客户端推送流（SSE）。用于把 AgentLink 的新消息**主动**推给
+//              客户端（`notifications/message`），客户端不必轮询 wait_for_message。
+//   DELETE /mcp 结束会话（MCP 约定）。
+//
+// 会话是进程内的 Map（id → { createdAt, streams }）：MCP 客户端本来就是
+// 与一个 server 进程一一对应，不需要跨进程共享；进程重启后客户端会重新 initialize。
 //
 // 用 AGENTLINK_MCP_HTTP_PORT 打开：设了端口就以 HTTP 模式跑（stdio 仍然可用）。
+
+interface McpSession {
+  readonly id: string;
+  readonly createdAt: number;
+  /** GET /mcp 建立的推送流（一个会话可以有多条，按 MCP 允许）。 */
+  readonly streams: Set<import('node:http').ServerResponse>;
+}
+
+const sessions = new Map<string, McpSession>();
+/** 已建立连接后，把 AgentLink 的新消息推给所有 SSE 流。 */
+function broadcastMessage(text: string): void {
+  const payload = JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'notifications/message',
+    params: { level: 'info', data: text },
+  });
+  for (const session of sessions.values()) {
+    for (const stream of session.streams) {
+      stream.write(`event: message\ndata: ${payload}\n\n`);
+    }
+  }
+}
 
 async function startHttp(port: number): Promise<void> {
   const { createServer } = await import('node:http');
   const server = createServer((req, res) => {
-    // 只允许 POST /mcp：其余路径明确 404，避免被当成通用 RPC 网关
-    if (req.method !== 'POST' || (req.url ?? '').split('?')[0] !== '/mcp') {
+    const pathname = (req.url ?? '').split('?')[0];
+    // 只服务 /mcp：其余路径明确 404，避免被当成通用 RPC 网关
+    if (pathname !== '/mcp') {
       res.writeHead(404, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'only POST /mcp is supported' }));
+      res.end(JSON.stringify({ error: 'only /mcp is supported' }));
+      return;
+    }
+
+    // GET /mcp：服务器→客户端推送流（SSE）
+    if (req.method === 'GET') {
+      const sessionId = String(req.headers['mcp-session-id'] ?? '');
+      const session = sessions.get(sessionId);
+      if (session === undefined) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32600, message: '缺少或未知的 Mcp-Session-Id（先 POST initialize）' },
+          }),
+        );
+        return;
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'mcp-session-id': session.id,
+      });
+      res.write('retry: 3000\n\n');
+      session.streams.add(res);
+      const cleanup = (): void => {
+        session.streams.delete(res);
+      };
+      req.on('close', cleanup);
+      req.on('error', cleanup);
+      return;
+    }
+
+    // DELETE /mcp：结束会话（MCP 约定）
+    if (req.method === 'DELETE') {
+      const sessionId = String(req.headers['mcp-session-id'] ?? '');
+      const session = sessions.get(sessionId);
+      if (session !== undefined) {
+        for (const stream of session.streams) stream.end();
+        sessions.delete(sessionId);
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'method not allowed' }));
       return;
     }
     const chunks: Buffer[] = [];
@@ -488,17 +569,26 @@ async function startHttp(port: number): Promise<void> {
         const batch = Array.isArray(parsed);
         const requests = (batch ? parsed : [parsed]) as RpcRequest[];
         const responses: unknown[] = [];
+        let sessionId = String(req.headers['mcp-session-id'] ?? '');
         for (const r of requests) {
+          // initialize → 建一个新会话（MCP 约定：之后所有请求都带这个 id）
+          if (r.method === 'initialize' && sessionId === '') {
+            sessionId = `mcp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+            sessions.set(sessionId, { id: sessionId, createdAt: Date.now(), streams: new Set() });
+          }
           const out = await dispatch(r);
           if (out !== null) responses.push(out);
         }
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (sessionId !== '') headers['mcp-session-id'] = sessionId;
+
         // 全是通知时按 MCP 约定回 202 且无 body
         if (responses.length === 0) {
-          res.writeHead(202);
+          res.writeHead(202, headers);
           res.end();
           return;
         }
-        res.writeHead(200, { 'content-type': 'application/json' });
+        res.writeHead(200, headers);
         res.end(JSON.stringify(batch ? responses : responses[0]));
       })().catch((err: unknown) => {
         res.writeHead(500, { 'content-type': 'application/json' });

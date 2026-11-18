@@ -32,6 +32,7 @@ import {
   SIDEBAR_MIN,
 } from './lib/localState.js';
 import { NARROW_QUERY, useMediaQuery } from './lib/useMediaQuery.js';
+import { apiUrl, wsUrl } from './lib/endpoint.js';
 import { reportTyping } from './lib/typing.js';
 import {
   bumpAttempts,
@@ -41,12 +42,6 @@ import {
 } from './lib/outbox.js';
 
 const PAGE_SIZE = 50;
-
-function wsUrl(): string {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // token 只在帧体内，URL 里不带任何凭证（协议 §2.4）
-  return `${proto}//${location.host}/ws`;
-}
 
 export function App(): React.JSX.Element {
   const [authed, setAuthed] = useState<boolean>(loadTokens().access !== null);
@@ -231,7 +226,7 @@ export function App(): React.JSX.Element {
     if (self === null) {
       void (async () => {
         try {
-          const me = await fetch('/api/auth/me', {
+          const me = await fetch(apiUrl('/api/auth/me'), {
             headers: { authorization: `Bearer ${loadTokens().access ?? ''}` },
           });
           if (!me.ok) return;

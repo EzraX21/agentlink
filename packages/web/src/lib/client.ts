@@ -1,3 +1,4 @@
+import { apiUrl } from './endpoint.js';
 import {
   PROTOCOL_VERSION,
   WS_SUBPROTOCOL,
@@ -158,7 +159,7 @@ export class ProtocolClient {
 
   async #refreshTokens(): Promise<void> {
     if (this.refreshToken === null) throw new Error('没有 refresh token');
-    const res = await fetch('/api/auth/refresh', {
+    const res = await fetch(apiUrl('/api/auth/refresh'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ refresh_token: this.refreshToken }),

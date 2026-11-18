@@ -5,6 +5,8 @@ import type { Conversation, Member, Message, SearchHit } from '@agentlink/protoc
  * 只有这些用 TanStack Query；实时消息走 WS。
  */
 
+import { apiUrl } from './endpoint.js';
+
 const TOKEN_KEY = 'agentlink.access_token';
 
 function authHeader(): Record<string, string> {
@@ -13,7 +15,7 @@ function authHeader(): Record<string, string> {
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),

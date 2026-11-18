@@ -13,6 +13,8 @@
  * 同一个附件只取一次，模块级缓存 + 引用计数，组件卸载时释放。
  */
 
+import { apiUrl } from './endpoint.js';
+
 const TOKEN_KEY = 'agentlink.access_token';
 
 function authHeader(): Record<string, string> {
@@ -54,7 +56,7 @@ export function uploadAttachment(
     form.append('file', file, file.name);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/attachments');
+    xhr.open('POST', apiUrl('/api/attachments'));
     const auth = authHeader();
     if (auth.authorization !== undefined) xhr.setRequestHeader('authorization', auth.authorization);
     xhr.responseType = 'text';
@@ -126,7 +128,7 @@ function fetchAttachmentBlob(
 ): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('GET', attachmentPath(attachmentId, filename));
+    xhr.open('GET', apiUrl(attachmentPath(attachmentId, filename)));
     const auth = authHeader();
     if (auth.authorization !== undefined) xhr.setRequestHeader('authorization', auth.authorization);
     xhr.responseType = 'blob';

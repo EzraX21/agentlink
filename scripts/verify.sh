@@ -24,7 +24,7 @@ fi
 # 协议扩展 / 外部 agent 接入 / MCP 的套件。
 # 单独列出来是因为它们**必须**在默认门禁里：新增功能不进 verify.sh
 # 等于"写了测试但没人跑"，比没有测试更糟。
-EXT_SUITES="agent-http ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file mcp"
+EXT_SUITES="agent-http ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file mcp split"
 
 WITH_DOCKER=1
 WITH_BROWSER=1
@@ -42,13 +42,16 @@ export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$REPO_ROOT/../.runt
 fail() { echo -e "\n\033[31m✗ $*\033[0m"; exit 1; }
 step() { echo -e "\n\033[1m\033[36m=== $* ===\033[0m"; }
 
-step "1/4 构建（pnpm -r build）"
+step "0/5 验收脚本语法检查（必须是纯 JS）"
+./scripts/check-acceptance-syntax.sh
+
+step "1/5 构建（pnpm -r build）"
 pnpm -r build || fail "构建失败"
 
-step "2/4 类型检查（pnpm -r typecheck）"
+step "2/5 类型检查（pnpm -r typecheck）"
 pnpm -r typecheck || fail "类型检查失败"
 
-step "3/4 单元测试（pnpm -r test）"
+step "3/5 单元测试（pnpm -r test）"
 pnpm -r test || fail "单元测试失败"
 
 # 说明：perf 与 visual 都**不在默认门禁里**：
@@ -56,7 +59,9 @@ pnpm -r test || fail "单元测试失败"
 #     单独跑 node scripts/acceptance/run.mjs perf（写 reports/perf.md）
 #   - visual：基线是**按机器**的（字体抗锯齿不同）。换机器先 UPDATE_BASELINES=1 重建，
 #     平时单独跑 node scripts/acceptance/run.mjs visual
-step "4/4 里程碑验收"
+step "4/5 里程碑验收"
+
+# 5/5 由最后的汇总行承担
 if [ "$WITH_BROWSER" -ne 1 ]; then
   TARGETS="${TARGETS% ui-browser}"
   echo "（已跳过 ui-browser：--no-browser）"

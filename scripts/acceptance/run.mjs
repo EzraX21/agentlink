@@ -53,6 +53,8 @@ export const MILESTONES = [
   'ext-forward',
   // MCP server（外部 AI 客户端的工具协议）
   'mcp',
+  // 前后端分离部署
+  'split',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */
@@ -276,6 +278,7 @@ async function runOne(name) {
       return handle.start(extra);
     },
     stopServer: () => handle.stop(),
+    /** 用额外 env 重启（套件需要在**启动前**确定配置时用，例如 CORS 来源）。 */
     restartServer: (extra) => handle.restart(extra),
     kill9Server: () => handle.kill9(),
     dbPath: path.join(dataDir, 'agentlink.db'),

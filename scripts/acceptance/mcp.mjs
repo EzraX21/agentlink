@@ -351,6 +351,107 @@ export async function run(ctx) {
         eq(badJson.status, 400, '坏 JSON → 400');
         const badBody = await badJson.json();
         eq(badBody.error.code, -32700, '错误码 -32700');
+
+        section('11b. Session 管理 + GET 推送流');
+        // initialize 应当回 Mcp-Session-Id，后续请求带上它属于同一会话
+        const init2 = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 10,
+            method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {} },
+          }),
+        });
+        const sid = init2.headers.get('mcp-session-id');
+        ok(typeof sid === 'string' && sid !== '', `initialize 返回 Mcp-Session-Id（${sid}）`);
+
+        // 没有 session 的 GET 要明确拒绝（不是静默挂住）
+        const noSession = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'GET' });
+        eq(noSession.status, 400, 'GET 缺 Mcp-Session-Id → 400');
+        const noSessionBody = await noSession.json();
+        eq(noSessionBody.error.code, -32600, '错误码 -32600');
+
+        // 带 session 的 GET 建立 SSE 推送流
+        const controller2 = new AbortController();
+        const sse = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'GET',
+          headers: { 'mcp-session-id': sid },
+          signal: controller2.signal,
+        });
+        eq(sse.status, 200, 'GET 带 session → 200');
+        eq(
+          sse.headers.get('content-type')?.includes('text/event-stream'),
+          true,
+          'content-type 是 text/event-stream',
+        );
+
+        // 收集推送帧
+        const pushed = [];
+        const reader2 = sse.body.getReader();
+        const decoder2 = new TextDecoder();
+        let buf2 = '';
+        const pump2 = (async () => {
+          try {
+            for (;;) {
+              const { value, done } = await reader2.read();
+              if (done) break;
+              buf2 += decoder2.decode(value, { stream: true });
+              let idx = buf2.indexOf('\n\n');
+              while (idx >= 0) {
+                const chunk = buf2.slice(0, idx);
+                buf2 = buf2.slice(idx + 2);
+                const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
+                if (dataLine !== undefined) {
+                  try {
+                    pushed.push(JSON.parse(dataLine.slice(6)));
+                  } catch {
+                    /* 心跳 */
+                  }
+                }
+                idx = buf2.indexOf('\n\n');
+              }
+            }
+          } catch {
+            /* abort 正常 */
+          }
+        })();
+
+        // 人类发一条 → 应当被**主动推**到 SSE 流
+        const pushText = `推送测试 ${Date.now()}`;
+        await human.drain(200);
+        expectOk(
+          await human.request('message.send', {
+            conv_id: conv.id,
+            client_msg_id: `mcp-push-${Date.now()}`,
+            content: [{ type: 'text', text: pushText }],
+          }),
+          '人类发一条（应被推送到 SSE）',
+        );
+        for (let i = 0; i < 50 && !pushed.some((p) => JSON.stringify(p).includes(pushText)); i += 1) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        controller2.abort();
+        await pump2;
+        const hit = pushed.find((p) => JSON.stringify(p).includes(pushText));
+        ok(hit !== undefined, `SSE 主动推到了新消息（累积 ${pushed.length} 帧）`);
+        if (hit !== undefined) {
+          eq(hit.method, 'notifications/message', '推送用 notifications/message');
+          eq(hit.jsonrpc, '2.0', '帧是 JSON-RPC 2.0');
+        }
+
+        // DELETE 结束会话
+        const del = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'DELETE',
+          headers: { 'mcp-session-id': sid },
+        });
+        eq(del.status, 200, 'DELETE 结束会话 → 200');
+        const afterDelete = await fetch(`http://127.0.0.1:${port}/mcp`, {
+          method: 'GET',
+          headers: { 'mcp-session-id': sid },
+        });
+        eq(afterDelete.status, 400, '会话结束后 GET → 400');
       } finally {
         httpInstance.kill('SIGKILL');
       }
