@@ -30,11 +30,8 @@ const tsxBin = path.join(serverDir, 'node_modules/.bin/tsx');
 export const MILESTONES = [
   'm0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11',
   'ui-admin',
-  'ui-media',
-  'ui-ux',
-  'ui-browser',
-  'perf',
-  'visual',
+  // 聊天 UI 的验收（ui-media / ui-ux / ui-browser / perf / visual）已移除：
+  // 聊天界面搬到 Qt 桌面客户端（EzraX21/agentlink-desktop），验收跟着那个仓库走。
   // 协议扩展验收（经用户批准后新增，见 docs/PROPOSAL-protocol-ext.md）
   'ext-typing',
   // 外部 agent 的 HTTP + SSE 接入面（docs/AGENT-INTEGRATION.md）

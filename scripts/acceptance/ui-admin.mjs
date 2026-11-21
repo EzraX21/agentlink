@@ -302,20 +302,11 @@ export async function run(ctx) {
   includes(pageSrc, 'api.setUserAdmin', '账号分区能授予/撤销管理员');
 
   const appSrc = await readFile(`${repoRoot}/packages/web/src/App.tsx`, 'utf8');
-  includes(appSrc, "route.name === 'admin'", 'App 按路由渲染管理页');
-  // 管理入口从"右下角浮层"挪到了侧栏底部（那个浮层会和「回到底部」按钮重叠），
-  // 所以这条断言跟着搬家：入口在 ConversationList 里，且由 isAdmin 控制。
-  const listSrc = await readFile(
-    `${repoRoot}/packages/web/src/components/ConversationList.tsx`,
-    'utf8',
-  );
-  includes(listSrc, 'isAdmin && onOpenAdmin', '管理入口只对管理员显示（侧栏底部）');
-  includes(appSrc, 'isAdmin={isAdmin}', 'App 把管理员身份传给侧栏');
-
-  const dialogExists = await stat(
-    `${repoRoot}/packages/web/src/components/CreateGroupDialog.tsx`,
-  ).catch(() => null);
-  ok(dialogExists !== null, '普通用户建群用独立对话框（conv.create 不要求管理员）');
+  // 架构：Web 只做管理后台，登录后直接渲染 AdminPage（聊天在桌面客户端）。
+  includes(appSrc, 'AdminPage', 'App 渲染管理页');
+  ok(!appSrc.includes('ChatWindow') && !appSrc.includes('ConversationList'),
+     'App 不再引用聊天组件');
+  includes(appSrc, 'isAdmin={isAdmin}', 'App 把管理员身份传给管理页');
 
   const oldPanel = await stat(`${repoRoot}/packages/web/src/components/AdminPanel.tsx`).catch(
     () => null,

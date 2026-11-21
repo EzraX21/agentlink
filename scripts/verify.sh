@@ -57,22 +57,15 @@ step "3/5 单元测试（pnpm -r test）"
 pnpm -r test || fail "单元测试失败"
 
 # 说明：perf 与 visual 都**不在默认门禁里**：
-#   - perf：共享机器上一次偶发长任务就会红，没有信息量。
-#     单独跑 node scripts/acceptance/run.mjs perf（写 reports/perf.md）
-#   - visual：基线是**按机器**的（字体抗锯齿不同）。换机器先 UPDATE_BASELINES=1 重建，
-#     平时单独跑 node scripts/acceptance/run.mjs visual
+# 聊天 UI 的验收（ui-media / ui-ux / ui-browser / perf / visual）已移除：
+# 聊天界面搬到 Qt 桌面客户端（EzraX21/agentlink-desktop），验收跟着那个仓库走。
 step "4/5 里程碑验收"
 
 # 5/5 由最后的汇总行承担
-if [ "$WITH_BROWSER" -ne 1 ]; then
-  TARGETS="${TARGETS% ui-browser}"
-  echo "（已跳过 ui-browser：--no-browser）"
-fi
-
 if [ "$WITH_DOCKER" -eq 1 ]; then
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ui-media ui-ux ui-browser ${EXT_SUITES}"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 ui-admin ${EXT_SUITES}"
 else
-  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ui-media ui-ux ui-browser ${EXT_SUITES}"
+  TARGETS="m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 ui-admin ${EXT_SUITES}"
   echo "（已跳过 m10：--no-docker）"
 fi
 

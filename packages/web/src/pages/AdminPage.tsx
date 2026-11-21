@@ -25,8 +25,6 @@ interface Props {
   isAdmin: boolean;
   section: AdminSection;
   onBack: () => void;
-  /** 建群走 WS 的 conv.create（协议 §5.2），由 App 注入（它持有连接）。 */
-  onCreateGroup: (title: string) => Promise<string>;
 }
 
 const SECTION_TITLES: Record<AdminSection, string> = {
@@ -42,7 +40,6 @@ export function AdminPage({
   isAdmin,
   section,
   onBack,
-  onCreateGroup,
 }: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -59,7 +56,7 @@ export function AdminPage({
             如果这是刚部署的新实例，注册的<strong>第一个</strong>账号会自动成为管理员。
           </p>
           <button className="al-btn" onClick={onBack}>
-            回到聊天
+            退出登录
           </button>
         </div>
       </div>
@@ -82,7 +79,7 @@ export function AdminPage({
         </nav>
         <footer className="p-2" style={{ borderTop: '1px solid var(--al-border)' }}>
           <button className="al-btn-ghost w-full" onClick={onBack}>
-            ← 回到聊天
+            ← 退出登录
           </button>
         </footer>
       </aside>
@@ -118,11 +115,7 @@ export function AdminPage({
           )}
           {section === 'agents' && <AgentsSection onError={setError} onNotice={setNotice} />}
           {section === 'groups' && (
-            <GroupsSection
-              onError={setError}
-              onNotice={setNotice}
-              onCreateGroup={onCreateGroup}
-            />
+            <GroupsSection onError={setError} onNotice={setNotice} />
           )}
           {section === 'audit' && <AuditSection onError={setError} />}
         </div>
@@ -592,18 +585,15 @@ function AgentsSection({
 function GroupsSection({
   onError,
   onNotice,
-  onCreateGroup,
 }: {
   onError: (m: string) => void;
   onNotice: (m: string | null) => void;
-  onCreateGroup: (title: string) => Promise<string>;
 }): React.JSX.Element {
   const [convs, setConvs] = useState<AdminConv[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [allUsers, setAllUsers] = useState<Array<{ id: string; label: string }>>([]);
   const [addIds, setAddIds] = useState('');
-  const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(() => {
@@ -777,41 +767,9 @@ function GroupsSection({
       </div>
 
       <div className="al-card lg:col-span-2">
-        <div className="mb-2 text-sm font-semibold">新建群组</div>
-        <div className="flex gap-2">
-          <input
-            className="al-input"
-            placeholder="群名"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <button
-            className="al-btn shrink-0"
-            disabled={busy || title.trim() === ''}
-            onClick={() => {
-              void (async () => {
-                setBusy(true);
-                try {
-                  // 建群走 WS op（协议 §5.2），成功后管理页重新拉列表
-                  const created = await onCreateGroup(title.trim());
-                  onNotice(`群「${title.trim()}」已创建`);
-                  setTitle('');
-                  reload();
-                  setSelected(created);
-                  reloadMembers(created);
-                } catch (err) {
-                  onError(err instanceof Error ? err.message : '建群失败');
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-          >
-            创建
-          </button>
-        </div>
-        <div className="al-muted mt-1 text-[11px]">
-          建群用的是协议里的 conv.create（任何登录用户都能建群）。创建后你在该群是群主。
+        <div className="mb-2 text-sm font-semibold">成员管理</div>
+        <div className="al-muted text-[11px]">
+          群组的创建在桌面客户端里做（Web 只提供管理后台）；这里管理现有群组的成员。
         </div>
       </div>
     </div>

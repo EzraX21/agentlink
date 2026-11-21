@@ -39,13 +39,12 @@ describe('管理页', () => {
         isAdmin={false}
         section="overview"
         onBack={noop}
-        onCreateGroup={() => Promise.resolve('c_1')}
       />,
     );
     expect(screen.getByText('需要管理员权限')).toBeTruthy();
     // 提示里要说清"第一个账号自动是管理员"，否则用户会卡住
     expect(screen.getByText(/第一个/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: '回到聊天' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '退出登录' })).toBeTruthy();
   });
 
   it('管理员看到五个分区导航', () => {
@@ -55,7 +54,6 @@ describe('管理页', () => {
         isAdmin
         section="overview"
         onBack={noop}
-        onCreateGroup={() => Promise.resolve('c_1')}
       />,
     );
     for (const label of ['概览', '账号', 'Agent', '群组', '审计日志']) {
@@ -70,7 +68,6 @@ describe('管理页', () => {
         isAdmin
         section="users"
         onBack={noop}
-        onCreateGroup={() => Promise.resolve('c_1')}
       />,
     );
     expect(screen.getByText('新建人类账号')).toBeTruthy();
@@ -85,7 +82,6 @@ describe('管理页', () => {
         isAdmin
         section="agents"
         onBack={noop}
-        onCreateGroup={() => Promise.resolve('c_1')}
       />,
     );
     expect(screen.getByText('新建 Agent')).toBeTruthy();

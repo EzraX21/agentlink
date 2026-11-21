@@ -42,30 +42,10 @@ async function connect(wsUrl, token) {
 export async function run(ctx) {
   const { http, wsUrl, repoRoot } = ctx;
 
-  section('M6.1 客户端状态逻辑（真实 store，Node 内驱动）');
-  const probe = path.join(repoRoot, 'scripts/acceptance/_webstore_probe.ts');
-  const tsx = path.join(repoRoot, 'packages/server/node_modules/.bin/tsx');
-  const { stdout } = await exec(tsx, [probe], { cwd: repoRoot, timeout: 60_000 });
-  const r = JSON.parse(stdout.trim().split('\n').pop());
-  eq(r.afterNew, 1, '重复的 message.new 被去重');
-  eq(r.streamingStarted, '', '流式消息初始文本为空');
-  eq(r.streamedText, '你好呀', '3 个 delta 按 rev 拼成 "你好呀"');
-  eq(r.streamedRev, 3, '本轮 rev=3');
-  eq(JSON.stringify(r.growth), JSON.stringify([4, 5, 6]), '文本逐字增长（长度 4→5→6）');
-  eq(r.streamingCleared, true, 'message.final 后清掉流式状态');
-  eq(r.finalText, '你好呀ABC', 'final 后消息文本为完整内容');
-  eq(r.afterResync, 'ABC', 'rev 跳变后按 message.get 结果重置');
-  eq(r.afterResyncRev, 3, '重置后报本地 rev=3');
-  eq(r.revokedState, 'revoked', 'message.revoke 后消息标记为 revoked');
-  eq(r.unknownIgnored, true, '未知 evt.type 被忽略且不报错');
-  eq(JSON.stringify(r.membersAfterKick), JSON.stringify(['u_a']), 'member.leave 后成员立即从列表消失');
-  eq(r.bulkCount, 1000, '1000 条消息全部进入 store');
-  lt(r.bulkInsertMs, 200, `1000 条插入耗时 ${r.bulkInsertMs}ms（< 200ms）`);
-  eq(r.bulkOrdered, true, '1000 条按 seq 升序排列');
-  eq(JSON.stringify(r.convOrder), JSON.stringify(['c2', 'c1']), 'upsert 把新会话排到最前');
-  eq(r.theme, 'dark', '主题可切换');
+  // 聊天状态逻辑（store.ts）已搬去 Qt 桌面客户端，这里不再有 web store 探针。
+  // 只保留"web 单测"与服务端 WS 契约两层。
 
-  section('M6.1b 组件真实渲染（jsdom）');
+  section('M6.1 web 单测（jsdom）');
   const vitest = path.join(repoRoot, 'packages/web/node_modules/.bin/vitest');
   // 用 dot 报告器：输出稳定、好断言（vitest 5 没有 basic 报告器）
   const { stdout: testOut } = await exec(vitest, ['run', '--reporter=dot'], {
@@ -164,30 +144,24 @@ export async function run(ctx) {
   const st = await stat(distIndex).catch(() => null);
   ok(st !== null && st.isFile(), 'packages/web/dist/index.html 存在（vite build 产物）');
 
+  // 架构：Web 现在**只**是管理后台，聊天在 Qt 桌面客户端里。
+  // 所以这里检查"App 只渲染管理页、不再引用聊天组件"。
   const webSrc = {
-    chat: await readFile(`${repoRoot}/packages/web/src/components/ChatWindow.tsx`, 'utf8'),
     styles: await readFile(`${repoRoot}/packages/web/src/styles.css`, 'utf8'),
     client: await readFile(`${repoRoot}/packages/web/src/lib/client.ts`, 'utf8'),
     app: await readFile(`${repoRoot}/packages/web/src/App.tsx`, 'utf8'),
-    store: await readFile(`${repoRoot}/packages/web/src/lib/store.ts`, 'utf8'),
+    admin: await readFile(`${repoRoot}/packages/web/src/pages/AdminPage.tsx`, 'utf8'),
     pkg: await readFile(`${repoRoot}/packages/web/package.json`, 'utf8'),
   };
-  includes(webSrc.chat, '@tanstack/react-virtual', '虚拟滚动用 @tanstack/react-virtual');
-  includes(webSrc.chat, "e.key === 'Enter' && !e.shiftKey", 'Enter 发送 / Shift+Enter 换行');
   includes(webSrc.styles, "[data-theme='dark']", '深色主题靠 CSS 变量切换');
-  includes(webSrc.styles, '--al-bubble-self', '自己的气泡与底色由变量定义');
-  includes(webSrc.client, 'onRevGap', '客户端有 rev 跳变回调');
   includes(webSrc.client, 'loadLastSeq', '客户端持久化 last_seq');
-  includes(webSrc.client, 'resume', '重连用 resume 而不是重拉全量');
-  includes(webSrc.client, 'backoffMs', '指数退避重连');
   includes(webSrc.client, "request('auth', { token: this.accessToken })", 'token 只在帧体（auth 帧）里');
   ok(!webSrc.client.includes('?token='), 'token 不出现在 URL 查询串');
-  includes(webSrc.store, "case 'message.update'", 'store 处理 message.update（按 rev 拼接）');
-  includes(webSrc.store, "case 'message.final'", 'store 处理 message.final');
-  includes(webSrc.store, 'default:', 'store 对未知 evt.type 走 default 忽略');
-  includes(webSrc.app, 'message.get', 'rev 跳变时调 message.get');
+  includes(webSrc.app, 'AdminPage', 'Web 只渲染管理页');
+  ok(!webSrc.app.includes('ChatWindow') && !webSrc.app.includes('ConversationList'),
+     'App 不再引用聊天组件（聊天在桌面客户端）');
+  includes(webSrc.admin, '审计日志', '管理页含审计日志分区');
   includes(webSrc.pkg, '@tanstack/react-query', 'TanStack Query 已接入');
-  includes(webSrc.pkg, 'zustand', 'Zustand 已接入');
   includes(webSrc.pkg, 'tailwindcss', 'Tailwind 已接入');
 
   a.close();
