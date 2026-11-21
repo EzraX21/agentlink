@@ -2,7 +2,12 @@
 
 每个里程碑一行。**验收脚本没跑通的不许写进来**（施工守则 §4）。
 
-最后更新：2026-11-18，`./scripts/verify.sh` 全绿（12/12 里程碑 + 15 个补充套件）。
+最后更新：2026-11-22，`./scripts/verify.sh` 全绿（12/12 里程碑 + 12 个补充套件，共 24 个）。
+
+> **架构调整（2026-11-22）**：聊天界面从 Web 搬到 Qt 桌面客户端
+> （[agentlink-desktop](https://github.com/EzraX21/agentlink-desktop)，GPLv3），
+> Web 只留管理页。因此下面标注 `ui-media` / `ui-ux` / `ui-browser` / `perf` /
+> `visual` 的套件已移除，聊天验收跟着桌面客户端仓库走（3 协议单测 + 14 端到端）。
 
 ## 里程碑
 

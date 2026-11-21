@@ -1,8 +1,8 @@
 # AgentLink
 
 一套**自研的、协议层原生为 AI Agent 设计**的即时通讯系统。不是挂在 QQ 上的协议端，
-也不是 Telegram 换后端：自研服务端 + 自研协议 + React 单页客户端，agent 是与人类
-**同权**的虚拟用户。
+也不是 Telegram 换后端：自研服务端 + 自研协议 + **Qt 桌面客户端**（聊天）+
+**React 管理后台**（管理页），agent 是与人类**同权**的虚拟用户。
 
 - 协议规范：[`docs/02-协议规范.md`](docs/02-协议规范.md)（整个项目的价值都在这份文件里）
 - 数据模型：[`docs/03-数据模型.md`](docs/03-数据模型.md)
@@ -107,32 +107,27 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/../.runtime/pw-browsers" pnpm run e2e:install
 
 node scripts/acceptance/run.mjs m0            # 单个里程碑
 node scripts/acceptance/run.mjs m0 m1 m2      # 按顺序跑多个
-node scripts/acceptance/run.mjs all           # 全部（含 Docker 与真浏览器）
-./scripts/verify.sh --no-browser --no-docker  # 只要构建+类型+单测+逻辑验收
+node scripts/acceptance/run.mjs all           # 全部（含 Docker）
+./scripts/verify.sh --no-docker            # 只要构建+类型+单测+逻辑验收
 
-# 两个"按需"套件（不进默认门禁，原因见 outputs）
-node scripts/acceptance/run.mjs perf     # 真浏览器帧率/长任务 → reports/perf.md
-node scripts/acceptance/run.mjs visual   # 截图像素比对（基线在 packages/web/e2e-baselines/）
-UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建基线
+# 聊天 UI 的验收在桌面客户端仓库：agentlink-desktop 的 scripts/acceptance.mjs
 ```
 
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
-**默认门禁共 27 个套件**（`./scripts/verify.sh` 全跑）：
+**默认门禁共 24 个套件**（`./scripts/verify.sh` 全跑）：
 
 | 分组 | 套件 |
 |---|---|
 | 里程碑 M0–M11 | `m0` … `m11` |
-| Web 客户端 | `ui-admin` / `ui-media` / `ui-ux` / `ui-browser`（真 Chromium） |
+| Web 管理页 | `ui-admin` |
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
 | 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
 
-桌面客户端（Qt/C++）是独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)，验收（协议单测 + 真连服务端端到端）跟着那个仓库走。
-
-另有 **2 个按需套件**不进默认门禁（原因：`perf` 怕机器抖动、`visual` 基线按机器）：
-`perf`（→ `reports/perf.md`）与 `visual`（11 张截图基线）。
+聊天 UI 的验收在桌面客户端仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)
+（3 协议单测 + 14 端到端，`node scripts/acceptance.mjs`），跟着那个仓库走。
 
 六个验收标准与里程碑的对应关系见 [`docs/PROGRESS.md`](docs/PROGRESS.md)。
 
@@ -143,7 +138,7 @@ packages/
   protocol/    # Zod schema、帧、op、evt、错误码 —— 唯一真源，只依赖 zod
   mcp/         # MCP server（stdio）：把消息通道暴露成 9 个工具
   server/      # Fastify 5 + ws + better-sqlite3 + Drizzle
-  web/         # React 19 + Vite 8 + TanStack Query + Zustand + react-virtual
+  web/         # React 19 + Vite 8 + TanStack Query —— **只**是管理后台（聊天在桌面客户端）
   agent-sdk/   # 给 agent 用的 TS 客户端，消费 protocol 包
 examples/
   demo.mjs     # 90 秒演示：两个真人 + agent 同群，含流式与断线补齐
@@ -157,7 +152,8 @@ docs/                 # 规格 + 决策记录 + 进度
 
 ## Web 管理页
 
-地址：`http://<host>/#/admin`（登录后左下角"管理"按钮，**只对管理员显示**）。
+Web 客户端**只**是管理后台（聊天在 Qt 桌面客户端）。登录后直接进管理页，
+地址：`http://<host>/`。第一个注册的账号自动是管理员。
 
 五个分区：
 

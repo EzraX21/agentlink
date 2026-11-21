@@ -1,9 +1,9 @@
 # 交付报告
 
-> 一句话：AgentLink v1（M0–M11）全部实现并通过验收；Web 客户端已对齐 Telegram Desktop
-> 的主要常用功能；协议扩展 6 项全部落地；**前后端部署真正分离**（两个镜像、两个服务）；
-> 另有一个基于 Qt/C++ 的原生桌面客户端（独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)），按"填服务器地址"的
-> 方式连任意一台部署好的服务端。
+> 一句话：AgentLink v1（M0–M11）全部实现并通过验收；协议扩展 6 项全部落地；
+> **前后端部署真正分离**（两个镜像、两个服务）；**架构最终形态**——服务端 + Web 管理后台 +
+> Qt/C++ 桌面客户端（独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)），
+> 所有 QQ 式聊天功能都在桌面客户端里，Web 只留管理页。
 
 生成时间：2026-11-18 · 代码位置：`agentlink/`（独立 git 仓库）
 
@@ -16,13 +16,15 @@ cd agentlink
 export XDG_RUNTIME_DIR="$PWD/../.runtime"
 export PLAYWRIGHT_BROWSERS_PATH="$PWD/../.runtime/pw-browsers"
 
-./scripts/verify.sh        # 构建 + 类型 + 单测 + 全部验收套件（含 Docker 与真浏览器）
-node scripts/acceptance/run.mjs perf     # 性能实测 → reports/perf.md
-node scripts/acceptance/run.mjs visual   # 截图像素回归（11 张基线）
+```bash
+cd agentlink
+export XDG_RUNTIME_DIR="$PWD/../.runtime"
+
+./scripts/verify.sh        # 构建 + 类型 + 单测 + 全部验收套件（含 Docker）
 ```
 
-最近一次全量：**28 个套件全绿，exit 0**（另 2 个按需套件 `perf` / `visual`）；
-web 单测 **148 项**；协议单测 27 项（32 个 op）；Qt 协议核心单测 37 项。
+最近一次全量：**24 个套件全绿，exit 0**；web 单测 **15 项**（只留管理页测试）；
+协议单测 27 项（32 个 op）；Qt 客户端 3 项协议单测 + 14 项端到端（在 agentlink-desktop 仓库）。
 
 ## 2. 里程碑与验收证据
 
@@ -46,11 +48,10 @@ web 单测 **148 项**；协议单测 27 项（32 个 op）；Qt 协议核心单
 | 套件 | 覆盖 | 断言数 |
 |---|---|---|
 | `ui-admin` | Web 管理页（概览/账号/Agent/群组/审计）+ `is_admin` 准入 | 91 |
-| `ui-media` | 附件上传/渲染、搜索（HTTP 面）、excerpt XSS | 41 |
-| `ui-ux` | 引用回复、右键菜单、草稿、未读、置顶、富文本、打字降级、离线队列、可访问性 | 132 |
-| `ui-browser` | **真 Chromium** 端到端：登录/发消息/流式/上传/搜索/管理页/窄屏/断线重连/离线队列 | 37 |
-| `perf` | 1000 条消息的帧率与长任务 → `reports/perf.md` | 18 |
-| `visual` | 11 张关键页截图像素回归 + 深色亮度客观校验 | 14 |
+
+> 聊天 UI 的验收（原 `ui-media` / `ui-ux` / `ui-browser` / `perf` / `visual`）已搬到
+> Qt 桌面客户端仓库 agentlink-desktop（`scripts/acceptance.mjs`：3 协议单测 + 14 端到端）。
+> 这里不再有网页聊天的浏览器验收。
 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` | 协议扩展 6 项 | 18 / 28 / 30 / 29 / 22 / 24 |
 | `agent-http` | 外部 agent 的 HTTP + SSE 接入面 | 67 |
 | `mcp` | MCP server（真 stdio JSON-RPC 子进程 + HTTP 传输，11 个工具） | 69 |
