@@ -2,7 +2,7 @@
 
 > 一句话：AgentLink v1（M0–M11）全部实现并通过验收；Web 客户端已对齐 Telegram Desktop
 > 的主要常用功能；协议扩展 6 项全部落地；**前后端部署真正分离**（两个镜像、两个服务）；
-> 另有一个基于 Qt/C++ 的原生桌面客户端（`packages/qt-client`），按"填服务器地址"的
+> 另有一个基于 Qt/C++ 的原生桌面客户端（独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)），按"填服务器地址"的
 > 方式连任意一台部署好的服务端。
 
 生成时间：2026-11-18 · 代码位置：`agentlink/`（独立 git 仓库）
@@ -57,7 +57,6 @@ web 单测 **148 项**；协议单测 27 项（32 个 op）；Qt 协议核心单
 | `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
 | `split` | 前后端分离部署（真跨域：独立静态服务器 + CORS + 真浏览器） | 26 |
 | `video-thumb` | 视频缩略图（真上传视频 → ffmpeg 抽帧 → JPEG） | 21 |
-| `qt-client` | **Qt/C++ 桌面客户端**（协议核心 + 引导 + 聊天） | 见第 7 节 |
 
 ## 3. 六条验收标准的落点
 
@@ -156,7 +155,7 @@ AgentLink 只提供消息通道，智能在调用方：
 
 ## 5f. Qt/C++ 桌面客户端
 
-`packages/qt-client` —— 原生桌面客户端，不是网页套壳。
+Qt/C++ 桌面客户端，不是网页套壳。已拆成独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)（GPLv3），验收脚本（协议单测 + 真连服务端端到端）也跟着搬了过去。
 
 - **引导式**：第一次启动先填**服务器地址**（默认 `ws://127.0.0.1:3000`）→
   再注册或登录 → 之后这个地址被记住，直接进聊天

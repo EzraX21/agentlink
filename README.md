@@ -119,7 +119,7 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
-**默认门禁共 28 个套件**（`./scripts/verify.sh` 全跑）：
+**默认门禁共 27 个套件**（`./scripts/verify.sh` 全跑）：
 
 | 分组 | 套件 |
 |---|---|
@@ -128,7 +128,8 @@ UPDATE_BASELINES=1 node scripts/acceptance/run.mjs visual   # 换机器后重建
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
 | 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
-| 桌面客户端 | `qt-client`（Qt/C++ 客户端协议核心 + 真连服务端端到端） |
+
+桌面客户端（Qt/C++）是独立仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)，验收（协议单测 + 真连服务端端到端）跟着那个仓库走。
 
 另有 **2 个按需套件**不进默认门禁（原因：`perf` 怕机器抖动、`visual` 基线按机器）：
 `perf`（→ `reports/perf.md`）与 `visual`（11 张截图基线）。

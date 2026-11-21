@@ -47,7 +47,7 @@
 | 图片/视频预览弹窗 | ✅ | 2026-11-17 | web 单测 | 115 |
 | **视频缩略图**（服务端 ffmpeg 抽帧） | ✅ | 2026-11-18 | `run.mjs video-thumb` | 21（真上传视频 → JPEG） |
 | **MCP 补转发与置顶工具**（9 → 11） | ✅ | 2026-11-18 | `run.mjs mcp` | +13 |
-| **Qt/C++ 桌面客户端** | ✅ | 2026-11-18 | `run.mjs qt-client` | 43 单测 + 6 端到端（真连服务端） |
+| **Qt/C++ 桌面客户端** | ✅ | 2026-11-18 | 独立仓库 [agentlink-desktop](https://github.com/EzraX21/agentlink-desktop) 的 `scripts/acceptance.mjs` | 43 单测 + 6 端到端（真连服务端） |
 
 ## 六条验收标准
 
