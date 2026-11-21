@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "示例 agent（echo / llm），不在 pnpm -r build 里构建，只用来跑演示。",
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "echo": "node echo-agent/index.mjs",
     "llm": "node llm-agent/index.mjs"

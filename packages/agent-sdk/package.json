@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "AgentLink agent SDK: connect / subscribe / onMessage / context / send / stream.",
+  "license": "GPL-3.0-or-later",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

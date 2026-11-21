@@ -8,13 +8,69 @@
 - 数据模型：[`docs/03-数据模型.md`](docs/03-数据模型.md)
 - 实现计划：[`docs/04-实现计划.md`](docs/04-实现计划.md)
 - 施工守则：[`docs/05-施工守则.md`](docs/05-施工守则.md)
+- 桌面客户端：[`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)（Qt/C++，独立仓库）
 - 需求来源：[`需求确认书.md`](需求确认书.md)
 - 实现决策记录：[`docs/DECISIONS.md`](docs/DECISIONS.md)
 - 里程碑进度：[`docs/PROGRESS.md`](docs/PROGRESS.md)
 
 ---
 
-## 3 行启动（Docker）
+## 1 条命令跑起来（单容器）
+
+服务端 + Web 客户端 + 数据盘，一个容器全包，一个端口对外：
+
+```bash
+docker run -d --name agentlink -p 3000:3000 \
+  -e JWT_SECRET=$(openssl rand -hex 32) \
+  -e AGENT_TOKEN_PEPPER=$(openssl rand -hex 16) \
+  -v agentlink-data:/data \
+  ghcr.io/ezrax21/agentlink:latest
+# 浏览器打开 http://localhost:3000 —— 第一个注册的账号自动是管理员
+```
+
+数据（SQLite + 附件）在 `agentlink-data` 卷里，容器重启不丢。
+
+不想拉镜像也可以本地构建：`docker build -f Dockerfile.allinone -t agentlink .`。
+
+## 90 秒看懂它是什么（示例）
+
+单容器跑起来之后，仓库里有一个可直接跑的演示：**两个真人 + 一个 AI agent 同群聊天**，
+包括逐字流式回复与断线重连补齐消息：
+
+```bash
+git clone https://github.com/EzraX21/agentlink.git && cd agentlink
+pnpm install && pnpm --filter @agentlink/protocol build && pnpm --filter @agentlink/agent-sdk build
+AGENTLINK_URL=http://localhost:3000 node examples/demo.mjs
+```
+
+跑起来会看到：
+
+```
+1. 注册两个人类账号
+  ✓ alice = u_01M7YM…（管理员：这台服务器上第一个用户）
+  ✓ bob   = u_01M7YM…
+2. 创建 agent 身份
+  ✓ echo agent = u_01M7YM…
+3. 建群「演示群」
+  ✓ 群 c_01M7YM…，成员 3 人（alice / bob / echo）
+4. agent 上线（收到 @ 后逐字流式回复）
+  ✓ echo 已连接
+5. 群聊开始（bob 也在线看着）
+  [alice 发出] @echo_xxxx 你好，请介绍一下你自己
+  [bob 看到] 爱丽丝: @echo_xxxx 你好，请介绍一下你自己
+  [echo 收到] @我:「你好，请介绍一下你自己」（上下文 1 条）
+  [bob 看到] 回显助手: …流式中
+  [echo 完成] seq=2
+6. 断线补齐：bob 掉线 → alice 发一条 → bob 重连凭 last_seq 补回
+  ✓ resume 补发 3 条到 seq=3（gap=false）
+7. 最终会话历史（服务端存储为准）
+```
+
+已有的其它示例：[`examples/echo-agent`](examples/echo-agent)（SDK 版回显机器人）、
+[`examples/http-agent`](examples/http-agent)（纯 HTTP + SSE 接入，不需要 WebSocket）、
+[`examples/llm-agent`](examples/llm-agent)（接 OpenAI 兼容接口）。
+
+## 3 行启动（前后端分离，Docker Compose）
 
 ```bash
 cp .env.example .env && sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/;s/^AGENT_TOKEN_PEPPER=.*/AGENT_TOKEN_PEPPER=$(openssl rand -hex 16)/" .env
@@ -23,6 +79,8 @@ docker compose up -d --build
 ```
 
 数据落在两个命名卷里（`db`、`caddy_data`），`docker compose restart` 不丢数据。
+单容器（`Dockerfile.allinone`）和分离部署（`Dockerfile` + `Dockerfile.web`）是**两种独立形态**：
+前者胜在简单，后者胜在前后端可独立扩缩容、独立发布 —— 选哪种都不影响协议与客户端。
 
 ## 本地开发
 
@@ -87,7 +145,8 @@ packages/
   web/         # React 19 + Vite 8 + TanStack Query + Zustand + react-virtual
   agent-sdk/   # 给 agent 用的 TS 客户端，消费 protocol 包
 examples/
-  echo-agent/  # 收到 @ 就流式回显（验收 1 的演示）
+  demo.mjs     # 90 秒演示：两个真人 + agent 同群，含流式与断线补齐
+  echo-agent/  # 收到 @ 就流式回显（验收 1 的演示，SDK 版）
   llm-agent/   # 接 OpenAI 兼容接口，流式输出
 hooks/
   example.mjs  # 服务端插件钩子示例（M11）
@@ -215,3 +274,10 @@ Node 24+ / TypeScript strict（`noUncheckedIndexedAccess` + `exactOptionalProper
 pnpm workspaces；Fastify 5 + `ws` + better-sqlite3 + Drizzle；协议层 Zod；
 前端 React 19 + Vite 8 + TanStack Query + Zustand + `@tanstack/react-virtual` + Tailwind；
 测试 Vitest + 自写的 WS 验收脚本；部署 Docker + compose + Caddy。
+
+## 许可证
+
+[GPL-3.0-or-later](LICENSE)。整个 AgentLink 项目 —— 服务端、协议、Web 客户端、SDK、
+MCP server、示例 —— 都以 GPLv3 或更新版本发布。
+桌面客户端（Qt/C++）作为独立仓库 [EzraX21/agentlink-desktop](https://github.com/EzraX21/agentlink-desktop)，
+同样以 GPLv3 发布。

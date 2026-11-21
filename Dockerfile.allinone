@@ -1,0 +1,107 @@
+# ---- 单容器镜像：服务端 API + WebSocket + Web 客户端，一个端口全包 ----
+#
+# 和另外两个镜像的区别：
+#
+#   Dockerfile      只有 API + WS（不含前端）      ─┐
+#   Dockerfile.web  nginx + 静态产物（不含 API）   ─┴─ 分离部署：两个容器
+#   Dockerfile.allinone  上面两个合而为一         ─── 单容器：一个 `docker run`
+#
+# 为什么还要这个镜像：给"想先跑起来看看"和"小规模自用"的人。
+# 下载一个镜像、一条命令、一个端口，不需要理解前后端拓扑。
+# 需要独立扩缩容或把前端放 CDN 时，再换成上面那两个分离镜像。
+#
+# 构建：
+#   docker build -f Dockerfile.allinone -t agentlink:latest .
+#
+# 运行：
+#   docker run -d --name agentlink -p 3000:3000 \
+#     -e JWT_SECRET=$(openssl rand -hex 32) \
+#     -e AGENT_TOKEN_PEPPER=$(openssl rand -hex 16) \
+#     -v agentlink-data:/data \
+#     agentlink:latest
+#   浏览器打开 http://localhost:3000
+FROM node:24-bookworm-slim AS build
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
+
+# better-sqlite3 没有匹配的 prebuilt 时需要现场编译
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 先只拷清单，让依赖层可缓存
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/protocol/package.json packages/protocol/
+COPY packages/server/package.json packages/server/
+COPY packages/web/package.json packages/web/
+COPY packages/agent-sdk/package.json packages/agent-sdk/
+COPY packages/mcp/package.json packages/mcp/
+COPY examples/package.json examples/
+
+# pnpm 需要在可写位置放 store 操作锁
+ENV XDG_RUNTIME_DIR=/tmp/pnpm-runtime
+RUN mkdir -p /tmp/pnpm-runtime
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.base.json ./
+COPY packages ./packages
+COPY examples ./examples
+
+# 构建三样东西：协议（类型真源）、服务端、Web 客户端
+RUN pnpm --filter @agentlink/protocol build \
+ && pnpm --filter @agentlink/server build \
+ && pnpm --filter @agentlink/web build
+
+# 裁掉 devDependencies，只留运行期依赖
+RUN pnpm prune --prod
+
+# ---- 运行阶段 ----
+FROM node:24-bookworm-slim AS runtime
+
+# ffmpeg：视频附件上传时抽一帧做缩略图（可选 —— 没有就跳过，其余功能不受影响）
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV DATABASE_PATH=/data/agentlink.db
+ENV UPLOADS_DIR=/data/uploads
+# 关键一行：服务端自己托管 Web 产物，浏览器看到的仍是同源（不需要 CORS）
+ENV PUBLIC_DIR=/app/packages/web/dist
+
+WORKDIR /app
+
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/protocol/dist ./packages/protocol/dist
+COPY --from=build /app/packages/protocol/package.json ./packages/protocol/package.json
+COPY --from=build /app/packages/protocol/node_modules ./packages/protocol/node_modules
+COPY --from=build /app/packages/server/dist ./packages/server/dist
+COPY --from=build /app/packages/server/package.json ./packages/server/package.json
+COPY --from=build /app/packages/server/drizzle ./packages/server/drizzle
+COPY --from=build /app/packages/server/node_modules ./packages/server/node_modules
+COPY --from=build /app/packages/web/dist ./packages/web/dist
+
+# 数据卷：SQLite 与附件都在这里，重启不丢
+RUN mkdir -p /data/uploads
+
+# 非 root 运行。先把 /app 与 /data 的所有权交给 node，
+# 否则 node 用户读不了自己目录里的 package.json（ERR_INVALID_PACKAGE_CONFIG）。
+RUN chown -R node:node /app /data
+VOLUME ["/data"]
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>r.json()).then(j=>process.exit(j.ok===true?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "packages/server/dist/index.js"]
