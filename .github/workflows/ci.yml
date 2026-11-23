@@ -69,6 +69,11 @@ jobs:
       - name: 构建（验收脚本要跑服务端与示例 agent）
         run: pnpm -r build
 
+      # split 套件（前后端分离 + 真跨域）要用真浏览器验 CORS，
+      # 没装 Chromium 会直接红。装一次约 130 MiB，装进可写目录。
+      - name: 装 Playwright Chromium（split 套件要真浏览器）
+        run: pnpm run e2e:install
+
       # video-thumb 套件要 ffmpeg 抽帧；没装时它会自己跳过，
       # 但"跳过"和"通过"不是一回事 —— 装上有真跑才有意义。
       - name: 装 ffmpeg
