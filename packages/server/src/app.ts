@@ -32,7 +32,7 @@ import { registerForwardHandlers } from './ops/forward.js';
 import { fromEnv as rateLimiterFromEnv } from './services/ratelimit.js';
 import { AttachmentService } from './services/attachments.js';
 import { loadHooks, NOOP_HOOKS } from './hooks.js';
-import { startEventsCleanup } from './services/resume.js';
+import { startAuditCleanup, startEventsCleanup } from './services/resume.js';
 import { StreamRegistry } from './services/stream.js';
 import { AgentLinkError, makeEvt } from '@agentlink/protocol';
 import { findMessage } from './db/queries.js';
@@ -216,9 +216,12 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   // events 只留 30 天（数据模型 §6.3），每 10 分钟清一次
   const stopCleanup = startEventsCleanup(dbc.db, app.log);
+  // 审计日志保留期清理（安全日志通常要比业务事件留得更久，所以是独立配置）
+  const stopAuditCleanup = startAuditCleanup(dbc.db, config.auditRetentionDays, app.log);
 
   app.addHook('onClose', async () => {
     stopCleanup();
+    stopAuditCleanup();
     await gateway.close();
     dbc.close();
   });

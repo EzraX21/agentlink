@@ -252,6 +252,22 @@ export function listAgents(db: Db, tenantId: string): UserRow[] {
     .all();
 }
 
+/** 已启用的人类管理员（工具告警的默认收件人）。 */
+export function listHumanAdmins(db: Db, tenantId = 'default'): UserRow[] {
+  return db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.tenantId, tenantId),
+        eq(users.kind, 'human'),
+        eq(users.isAdmin, 1),
+        eq(users.disabled, 0),
+      ),
+    )
+    .all();
+}
+
 export function listHumans(db: Db, tenantId: string): UserRow[] {
   return db
     .select()
@@ -741,6 +757,12 @@ export function maxEventSeq(db: Db): number {
 export function minEventSeq(db: Db): number {
   const row = db.select({ n: sql<number>`COALESCE(min(seq), 0)` }).from(events).get();
   return row?.n ?? 0;
+}
+
+/** 删掉 created_at < cutoff 的审计行（保留期外）。0 表示调用方不该调。 */
+export function deleteAuditOlderThan(db: Db, cutoff: number): number {
+  const res = db.delete(auditLogs).where(lt(auditLogs.createdAt, cutoff)).run();
+  return res.changes;
 }
 
 export function deleteEventsOlderThan(db: Db, cutoff: number): number {

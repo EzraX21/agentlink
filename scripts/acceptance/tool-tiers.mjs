@@ -353,6 +353,64 @@ export async function run(ctx) {
     });
     eq(forgeOutsider.ok, false, '触发者不是会话成员时被拒');
 
+    // ---- 告警：全权限命令与被拒尝试都要能实时通知管理员 ----
+    section('10d. 告警：exec 与被拒尝试实时推给管理员');
+    // alice 是管理员：她应当收到前面 exec 的 tool.alert
+    const execAlert = await aliceConn.client
+      .nextEvent((e) => e.type === 'tool.alert' && e.data?.kind === 'exec', 8000)
+      .catch(() => null);
+    ok(execAlert !== null, '管理员收到 kind=exec 的告警');
+    if (execAlert !== null) {
+      eq(execAlert.data.tool, 'exec', '告警里 tool = exec');
+      eq(execAlert.data.tier, 'host-root', '告警里 tier = host-root');
+      ok(
+        typeof execAlert.data.args_preview === 'string' &&
+          execAlert.data.args_preview.length > 0,
+        `告警里带命令预览（${JSON.stringify(execAlert.data.args_preview)}）`,
+      );
+      ok(typeof execAlert.data.audit_id === 'string' && execAlert.data.audit_id.length > 0,
+        '告警里带 audit_id（能对到具体审计行）');
+    }
+
+    // 被拒的尝试也要告警（这是最容易漏的一类信号）
+    const deniedAlert = await aliceConn.client
+      .nextEvent((e) => e.type === 'tool.alert' && e.data?.kind === 'denied', 8000)
+      .catch(() => null);
+    ok(deniedAlert !== null, '管理员收到 kind=denied 的告警（有人试图越权）');
+    if (deniedAlert !== null) {
+      eq(deniedAlert.data.triggered_by, bob.user.id, '告警里触发者是 bob（试图越权的人）');
+      eq(deniedAlert.data.tier, 'none', '告警里 tier = none');
+    }
+
+    // 被拒也必须留痕：audit 里有 tool.denied
+    const deniedAudit = await http('GET', '/api/admin/audit?limit=50&action=tool.denied', {
+      token: alice.access_token,
+    });
+    eq(deniedAudit.status, 200, '能查 tool.denied');
+    ok(
+      (deniedAudit.body.items ?? []).length > 0,
+      `被拒尝试留痕 ${deniedAudit.body.items?.length ?? 0} 条（失败的尝试也要可追溯）`,
+    );
+    // 有两条 denied：bob 在私聊试探 exec、alice 在群里申请 exec。
+    // 不能取 [0]（时间倒序，不一定是我们要的那条），按触发者找。
+    const bobDenied = (deniedAudit.body.items ?? []).find(
+      (r) => r.detail.triggered_by === bob.user.id,
+    );
+    ok(bobDenied !== undefined, 'tool.denied 里有 bob 那条（私聊试探 exec）');
+    eq(bobDenied?.detail.tier, 'none', 'bob 那条 tier = none');
+    ok(
+      Array.isArray(bobDenied?.detail.allowed),
+      'tool.denied 记录了当时允许的工具清单（便于判断是不是在探测）',
+    );
+    const groupDenied = (deniedAudit.body.items ?? []).find(
+      (r) => r.detail.triggered_by === alice.user.id && r.detail.tier === 'sandbox',
+    );
+    ok(groupDenied !== undefined, '也记录了"群聊里申请 exec"被拒（tier=sandbox）');
+
+    // 普通群友（bob，非管理员）不该收到告警
+    const bobGotAlert = bobConn.client.events.some((e) => e.type === 'tool.alert');
+    eq(bobGotAlert, false, '非管理员收不到工具告警（只发给管理员）');
+
     // ---- HOST_OWNER_ID 显式配置：服主可以不是 agent 的创建者 ----
     section('11. HOST_OWNER_ID 显式配置：服主换成 bob');
     // 关键：先停掉旧 agent。否则服务端重启后它会**自动重连**，

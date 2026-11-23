@@ -251,6 +251,8 @@ describe('事件注册表', () => {
         'message.edit',
         // 协议扩展 §4：置顶是会话状态，横幅要能恢复
         'message.pin',
+        // 工具告警：瞬时事件（权威记录在 audit_logs，补发无意义）
+        'tool.alert',
       ].sort(),
     );
   });

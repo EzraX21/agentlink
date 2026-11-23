@@ -100,6 +100,30 @@ export const ReadUpdateData = z.object({
   last_seq: z.number().int().min(0),
 });
 
+/**
+ * 工具权限告警（见 docs/TOOL-TIERS.md）。
+ *
+ * **瞬时事件**（seq=null，不落库、不补发）：权威记录是 `audit_logs` 里那行，
+ * 这个只是给管理员一个实时提醒。补发它没有意义 —— 离线的人重连后
+ * 到管理页看审计日志就行。
+ *
+ * 收件人是管理员（默认全部人类管理员，可用 TOOL_ALERT_USER_IDS 指定），
+ * 通过 hub 的 forceUserIds 定向推送：不受会话可见性过滤影响，
+ * 因为告警关心的往往是"有人被拒了"，而不在那个会话里的人也该知道。
+ */
+export const ToolAlertData = z.object({
+  kind: z.enum(['denied', 'exec']),
+  tool: z.string(),
+  tier: z.enum(['host-root', 'sandbox', 'none']),
+  conv_id: ConvIdSchema,
+  conv_kind: z.enum(['group', 'dm']),
+  agent_id: UserIdSchema,
+  triggered_by: UserIdSchema,
+  args_preview: z.string(),
+  /** 审计行 id：管理员点进来能对到具体那一条。 */
+  audit_id: z.string(),
+});
+
 export const EVENTS = {
   'message.new': { data: MessageNewData, seq: true },
   'message.update': { data: MessageUpdateData, seq: false },
@@ -120,6 +144,7 @@ export const EVENTS = {
   'message.edit': { data: MessageEditData, seq: true },
   'message.pin': { data: MessagePinData, seq: true },
   poke: { data: PokeData, seq: false },
+  'tool.alert': { data: ToolAlertData, seq: false },
 } as const;
 
 export type EvtType = keyof typeof EVENTS;

@@ -1,6 +1,12 @@
 import { makeEvt, type EvtFrame } from '@agentlink/protocol';
 import type { Db } from '../db/index.js';
-import { listEventsAfter, maxEventSeq, minEventSeq, deleteEventsOlderThan } from '../db/queries.js';
+import {
+  deleteAuditOlderThan,
+  deleteEventsOlderThan,
+  listEventsAfter,
+  maxEventSeq,
+  minEventSeq,
+} from '../db/queries.js';
 import type { ClientState, Hub } from '../hub.js';
 import { EVENTS_RETENTION_MS, EVENTS_CLEANUP_INTERVAL_MS } from '@agentlink/protocol';
 /** 只要求 info 方法，Fastify 的 FastifyBaseLogger 直接满足。 */
@@ -89,6 +95,27 @@ function extractMentionsFromPayload(data: unknown): string[] | undefined {
     return maybe as string[];
   }
   return undefined;
+}
+
+/**
+ * 审计日志保留期清理。
+ *
+ * 与 events 的 30 天分开：安全审计通常要留得更久（合规上常见 180 天～1 年），
+ * 而 events 只是补发用的中间数据。`days = 0` 表示**永不删除**（返回空操作），
+ * 这是有意的：有些部署要把审计永久保留。
+ */
+export function startAuditCleanup(db: Db, days: number, logger: InfoLogger): () => void {
+  if (days <= 0) return () => {};
+  const run = (): void => {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const deleted = deleteAuditOlderThan(db, cutoff);
+    if (deleted > 0) logger.info({ deleted, days }, '审计日志清理完成');
+  };
+  // 启动时先跑一次：否则长期运行的进程要等一个周期才清
+  run();
+  const timer = setInterval(run, 10 * 60 * 1000);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 /**

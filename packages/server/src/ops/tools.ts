@@ -2,7 +2,7 @@ import type { Handler, HandlerMap } from './dispatch.js';
 import { validateData } from './dispatch.js';
 import { AgentLinkError, isToolAllowed, toolTierFor, toolsForTier } from '@agentlink/protocol';
 import { requireMembership } from '../permissions.js';
-import { findConversation, findUserById, insertAudit } from '../db/queries.js';
+import { findConversation, findUserById, insertAudit, listHumanAdmins } from '../db/queries.js';
 import { newId, nowMs } from '../ids.js';
 
 /**
@@ -58,6 +58,35 @@ export function registerToolHandlers(handlers: HandlerMap): void {
     // 4. 判层级与工具白名单（分级表在 protocol 包里，服务端与 agent 共用一份）
     const tier = toolTierFor(conv.kind, isHost);
     if (!isToolAllowed(tier, data.tool)) {
+      // 被拒也要留痕！否则"有人反复试探 exec"在系统里完全不可见 ——
+      // 这是安全审计最容易漏的一类信号（失败的尝试往往比成功的更重要）。
+      const deniedId = recordAudit(ctx, {
+        actorId: agentId,
+        action: 'tool.denied',
+        tool: data.tool,
+        targetId: data.tool,
+        detail: {
+          conv_id: data.conv_id,
+          conv_kind: conv.kind,
+          tier,
+          triggered_by: data.triggered_by,
+          args_preview: data.args_preview,
+          ...(data.message_id === undefined ? {} : { message_id: data.message_id }),
+          allowed: [...toolsForTier(tier)],
+        },
+      });
+      alert(ctx, {
+        kind: 'denied',
+        tool: data.tool,
+        tier,
+        convId: data.conv_id,
+        convKind: conv.kind,
+        agentId,
+        triggeredBy: data.triggered_by,
+        argsPreview: data.args_preview,
+        auditId: deniedId,
+      });
+
       throw new AgentLinkError(
         'PERM_DENIED',
         tier === 'none'
@@ -73,17 +102,14 @@ export function registerToolHandlers(handlers: HandlerMap): void {
       );
     }
 
-    // 5. 落审计（授权成功才写；被拒的也可以写，但这里只记成功的执行）
-    const auditId = newId('e');
-    insertAudit(ctx.db, {
-      id: auditId,
-      tenantId: 'default',
+    // 5. 落审计（授权成功）
+    const auditId = recordAudit(ctx, {
       actorId: agentId,
       // 动作粒度到工具名：管理页能按 tool.exec / tool.ls 分别筛
       action: `tool.${data.tool}`,
-      targetType: 'tool',
+      tool: data.tool,
       targetId: data.tool,
-      detail: JSON.stringify({
+      detail: {
         conv_id: data.conv_id,
         conv_kind: conv.kind,
         tier,
@@ -91,12 +117,96 @@ export function registerToolHandlers(handlers: HandlerMap): void {
         ...(hostId === null ? {} : { host_id: hostId }),
         args_preview: data.args_preview,
         ...(data.message_id === undefined ? {} : { message_id: data.message_id }),
-      }),
-      createdAt: nowMs(),
+      },
     });
+
+    // 6. 全权限命令立刻告警：这是"服务器可能被改了什么"的唯一实时信号
+    if (tier === 'host-root' && data.tool === 'exec') {
+      alert(ctx, {
+        kind: 'exec',
+        tool: data.tool,
+        tier,
+        convId: data.conv_id,
+        convKind: conv.kind,
+        agentId,
+        triggeredBy: data.triggered_by,
+        argsPreview: data.args_preview,
+        auditId,
+      });
+    }
 
     return { ok: true as const, audit_id: auditId, tier };
   };
 
   handlers.set('agent.tool.request', toolRequest);
+}
+
+/** 写一条审计，返回 id。 */
+function recordAudit(
+  ctx: Parameters<Handler>[0],
+  input: {
+    actorId: string;
+    action: string;
+    tool: string;
+    targetId: string;
+    detail: Record<string, unknown>;
+  },
+): string {
+  const id = newId('e');
+  insertAudit(ctx.db, {
+    id,
+    tenantId: 'default',
+    actorId: input.actorId,
+    action: input.action,
+    targetType: 'tool',
+    targetId: input.targetId,
+    detail: JSON.stringify(input.detail),
+    createdAt: nowMs(),
+  });
+  return id;
+}
+
+/**
+ * 把告警推给收件人（瞬时事件，定向推送）。
+ *
+ * 收件人：`TOOL_ALERT_USER_IDS` 显式指定；留空则全部人类管理员。
+ * 用 hub 的 `forceUserIds` 绕过会话可见性 —— 告警关心的是"有人被拒了"，
+ * 不在那个会话里的管理员也该知道。
+ */
+function alert(
+  ctx: Parameters<Handler>[0],
+  input: {
+    kind: 'denied' | 'exec';
+    tool: string;
+    tier: 'host-root' | 'sandbox' | 'none';
+    convId: string;
+    convKind: 'group' | 'dm';
+    agentId: string;
+    triggeredBy: string;
+    argsPreview: string;
+    auditId: string;
+  },
+): void {
+  const configured = ctx.config.toolAlertUserIds;
+  const recipients =
+    configured.length > 0 ? [...configured] : listHumanAdmins(ctx.db).map((u) => u.id);
+  if (recipients.length === 0) return;
+
+  ctx.hub.publish({
+    type: 'tool.alert',
+    seq: null,
+    convId: input.convId,
+    data: {
+      kind: input.kind,
+      tool: input.tool,
+      tier: input.tier,
+      conv_id: input.convId,
+      conv_kind: input.convKind,
+      agent_id: input.agentId,
+      triggered_by: input.triggeredBy,
+      args_preview: input.argsPreview,
+      audit_id: input.auditId,
+    },
+    onlyUserIds: recipients,
+  });
 }

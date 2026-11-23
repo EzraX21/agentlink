@@ -50,6 +50,19 @@ export interface Config {
    * （谁建的 agent 谁是主人）。
    */
   readonly hostOwnerId: string | null;
+  /**
+   * 工具告警的收件人（`TOOL_ALERT_USER_IDS`，逗号分隔）。
+   *
+   * 留空 = 默认全部人类管理员。显式指定用于"让某个非管理员也盯着"。
+   * 告警本身是瞬时的，权威记录在 `audit_logs`。
+   */
+  readonly toolAlertUserIds: readonly string[];
+  /**
+   * 审计日志保留天数（`AUDIT_RETENTION_DAYS`，默认 180，`0` = 永不删除）。
+   *
+   * 安全日志的保留期通常比业务数据长，所以单独一个配置而不是复用 events 的 30 天。
+   */
+  readonly auditRetentionDays: number;
 }
 
 type Env = Record<string, string | undefined>;
@@ -95,6 +108,17 @@ function optionalInt(env: Env, key: string, fallback: number): number {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 0 || n > 65535) {
     throw new ConfigError(`环境变量 ${key} 必须是 0-65535 的整数，收到 "${raw}"。`);
+  }
+  return n;
+}
+
+/** 非负整数（0 有特殊含义，如"永不删除"）。 */
+function optionalInt0(env: Env, key: string, fallback: number): number {
+  const raw = env[key];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new ConfigError(`环境变量 ${key} 必须是非负整数，收到 "${raw}"。`);
   }
   return n;
 }
@@ -151,5 +175,10 @@ export function loadConfig(env: Env = process.env): Config {
       .map((o) => o.trim())
       .filter((o) => o !== ''),
     hostOwnerId: env['HOST_OWNER_ID']?.trim() || null,
+    toolAlertUserIds: (env['TOOL_ALERT_USER_IDS'] ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o !== ''),
+    auditRetentionDays: optionalInt0(env, 'AUDIT_RETENTION_DAYS', 180),
   };
 }

@@ -36,6 +36,14 @@ export interface PublishInput {
    * 通过可见性检查了，但他的客户端必须收到 member.leave 才知道自己已经出群。
    */
   readonly forceUserIds?: readonly string[];
+  /**
+   * **只**推给这些用户（其余连接一律不推，连正常过滤都不走）。
+   *
+   * 与 `forceUserIds` 的区别：那个是"跳过过滤、多推给几个人"，
+   * 这个是把收件人**限定**成一个集合 —— 用于告警这种"只该给指定人看"
+   * 的内容。只写 forceUserIds 的话，其他能看见该会话的人照样会收到。
+   */
+  readonly onlyUserIds?: readonly string[];
 }
 
 export class Hub {
@@ -73,9 +81,17 @@ export class Hub {
   publish(input: PublishInput): number {
     const evt = makeEvt(input.type, input.seq, nowMs(), input.data);
     const forced = new Set(input.forceUserIds ?? []);
+    const only = input.onlyUserIds === undefined ? null : new Set(input.onlyUserIds);
     let sent = 0;
     for (const state of this.clients.values()) {
       if (!state.conn.authed) continue;
+      // 限定收件人：不在集合里的直接跳过（告警只发该发的人）
+      if (only !== null) {
+        if (!only.has(state.userId)) continue;
+        state.conn.send(evt);
+        sent += 1;
+        continue;
+      }
       // 强制收件人跳过订阅过滤（见 forceUserIds 的注释）
       if (!forced.has(state.userId) && !this.accepts(state, input)) continue;
       state.conn.send(evt);
