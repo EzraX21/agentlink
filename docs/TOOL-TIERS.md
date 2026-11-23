@@ -115,10 +115,39 @@ node examples/host-agent/index.mjs
 
 现在私聊**不受** `only_mentions` 约束（群聊仍然只在被 @ 时推送，这是群聊不刷屏的关键）。
 
+## 接 LLM 的 function-calling
+
+`examples/llm-host-agent` 把同一套权限接到 OpenAI 兼容的 function-calling 上。
+风险模型变了：从"人打错命令"变成"模型被诱导"，所以**护栏位置必须变**：
+
+```
+❌ 靠 system prompt 说"不要执行危险命令"   ← 提示词能被绕过
+✅ 执行层强制：每次工具调用先过服务端授权
+   危险命令必须让真人回「确认」才执行        ← 代码挡得住
+```
+
+流程：
+
+```
+消息 → 按四象限算出 tools 范围 → 传给 LLM
+     → LLM 返回 tool_calls
+       → 逐个：agent.tool.request（服务端授权 + 审计）
+                → 危险命令？→ 不执行，问人「确认」/「取消」
+                → 否则执行
+       → 结果以 role:tool 回灌 → 继续下一轮，直到给出最终文本
+```
+
+`tools` 只是给模型看的"提议范围"；真正的门是服务端授权 —— 模型硬编一个
+不存在的工具名或越权工具，都过不去。
+
+待确认的危险调用存在内存里（含上下文 messages），所以用户回「确认」后能
+接着推进多轮对话，而不是从头重来（重来会让模型重新规划、可能又提同样的命令）。
+
 ## 验收
 
 ```bash
-node scripts/acceptance/run.mjs tool-tiers     # 47 项断言
+node scripts/acceptance/run.mjs tool-tiers     # 65 项断言（命令式 agent）
+node scripts/acceptance/run.mjs tool-llm       # 40 项断言（接 LLM，用假 LLM 驱动）
 ```
 
 覆盖：auth 下发服主身份、四个象限各自的工具集、沙箱越权读被挡、

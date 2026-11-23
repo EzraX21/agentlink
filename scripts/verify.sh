@@ -26,7 +26,7 @@ fi
 # 等于"写了测试但没人跑"，比没有测试更糟。
 # video-thumb：服务端上传视频 → ffmpeg 抽帧（没装 ffmpeg 时套件自己跳过）
 # （Qt/C++ 桌面客户端是独立仓库 EzraX21/agentlink-desktop，验收跟着那个仓库走）
-EXT_SUITES="agent-http ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file mcp split video-thumb tool-tiers"
+EXT_SUITES="agent-http ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file mcp split video-thumb tool-tiers tool-llm"
 
 WITH_DOCKER=1
 WITH_BROWSER=1

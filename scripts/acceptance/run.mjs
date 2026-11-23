@@ -56,6 +56,8 @@ export const MILESTONES = [
   'video-thumb',
   // agent 的四级工具权限（会话类型 × 发送者身份）
   'tool-tiers',
+  // 同一套权限接到真 LLM 的 function-calling（用假 LLM 驱动，结果确定）
+  'tool-llm',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

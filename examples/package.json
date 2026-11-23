@@ -8,7 +8,8 @@
   "scripts": {
     "echo": "node echo-agent/index.mjs",
     "llm": "node llm-agent/index.mjs",
-    "host": "node host-agent/index.mjs"
+    "host": "node host-agent/index.mjs",
+    "llm-host": "node llm-host-agent/index.mjs"
   },
   "dependencies": {
     "@agentlink/agent-sdk": "workspace:*",
