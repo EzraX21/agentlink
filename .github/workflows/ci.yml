@@ -1,0 +1,131 @@
+name: CI
+
+# 两条独立作业换快速反馈：
+#   checks      —— 构建 / 类型 / 单测（1-2 分钟，改错立刻红）
+#   acceptance  —— 25 个验收套件（十几分钟，真起服务端跑）
+# m10 需要 Docker 构建镜像（十几分钟且吃磁盘），不在每次 push 里跑；
+# 它由下面的 docker 作业单独覆盖 —— 只用一次 build 验证 Dockerfile 还能用。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # pnpm 需要一个可写的 XDG_RUNTIME_DIR（README 的"环境注意"里写过）
+  XDG_RUNTIME_DIR: ${{ github.workspace }}/.runtime
+
+jobs:
+  checks:
+    name: 构建 / 类型 / 单测
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        run: pnpm -r build
+
+      - name: 类型检查
+        run: pnpm -r typecheck
+
+      - name: 单元测试
+        run: pnpm -r test
+
+  acceptance:
+    name: 验收套件（25 个，不含 m10）
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建（验收脚本要跑服务端与示例 agent）
+        run: pnpm -r build
+
+      # video-thumb 套件要 ffmpeg 抽帧；没装时它会自己跳过，
+      # 但"跳过"和"通过"不是一回事 —— 装上有真跑才有意义。
+      - name: 装 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # m10 要 docker build（十几分钟），单独放在 docker 作业里。
+      # 其余 25 个套件都是"起个本地服务端 + WS/HTTP 客户端"这种形态。
+      - name: 跑验收
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          node scripts/acceptance/run.mjs \
+            m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m11 \
+            ui-admin \
+            ext-typing ext-read ext-reaction ext-edit ext-pin ext-forward ext-large-file \
+            agent-http mcp split video-thumb tool-tiers tool-llm
+
+      - name: 失败时上传服务端日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-logs
+          path: |
+            ${{ runner.temp }}/**/*.log
+          if-no-files-found: ignore
+
+  docker:
+    name: 单容器镜像能构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 单容器形态（Dockerfile.allinone）在验收套件里没有被覆盖 ——
+      # 它坏掉的话只有人工部署时才发现，所以这里至少保证它能构建出来。
+      - name: 构建 agentlink:ci
+        run: docker build -f Dockerfile.allinone -t agentlink:ci .
+
+      - name: 起容器并打健康检查
+        run: |
+          docker run -d --name ci -p 3000:3000 \
+            -e JWT_SECRET=$(openssl rand -hex 32) \
+            -e AGENT_TOKEN_PEPPER=$(openssl rand -hex 16) \
+            agentlink:ci
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3000/healthz | grep -q '"ok":true'; then
+              echo "健康检查通过"; exit 0
+            fi
+            sleep 2
+          done
+          echo "容器没起来"; docker logs ci; exit 1
+
+      - name: 首页与 SPA 路由可访问
+        run: |
+          curl -fsS http://127.0.0.1:3000/ | grep -q 'AgentLink'
+          # SPA 兜底：不带扩展名的路径也应当返回 200（前端路由）
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login)
+          test "$code" = "200" || { echo "SPA 路由返回 $code"; exit 1; }
+
+      - name: 清理
+        if: always()
+        run: docker rm -f ci || true
