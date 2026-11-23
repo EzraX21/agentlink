@@ -23,8 +23,8 @@ export XDG_RUNTIME_DIR="$PWD/../.runtime"
 ./scripts/verify.sh        # 构建 + 类型 + 单测 + 全部验收套件（含 Docker）
 ```
 
-最近一次全量：**24 个套件全绿，exit 0**；web 单测 **15 项**（只留管理页测试）；
-协议单测 27 项（32 个 op）；Qt 客户端 3 项协议单测 + 14 项端到端（在 agentlink-desktop 仓库）。
+最近一次全量：**26 个套件全绿，exit 0**；web 单测 **15 项**（只留管理页测试）；
+协议单测 27 项（33 个 op）；Qt 客户端 3 项协议单测 + 14 项端到端（在 agentlink-desktop 仓库）。
 
 ## 2. 里程碑与验收证据
 
@@ -58,6 +58,8 @@ export XDG_RUNTIME_DIR="$PWD/../.runtime"
 | `ext-large-file` | 解除附件大小上限（25 MiB 往返） | 15 |
 | `split` | 前后端分离部署（真跨域：独立静态服务器 + CORS + 真浏览器） | 26 |
 | `video-thumb` | 视频缩略图（真上传视频 → ffmpeg 抽帧 → JPEG） | 21 |
+| `tool-tiers` | agent 工具权限四象限 + 服务端前置授权 + 审计 + 告警 | 83 |
+| `tool-llm` | 同一套权限接 LLM function-calling（假 LLM 驱动，结果确定） | 40 |
 
 ## 3. 六条验收标准的落点
 

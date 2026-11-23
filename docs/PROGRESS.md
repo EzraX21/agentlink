@@ -2,7 +2,7 @@
 
 每个里程碑一行。**验收脚本没跑通的不许写进来**（施工守则 §4）。
 
-最后更新：2026-11-22，`./scripts/verify.sh` 全绿（12/12 里程碑 + 12 个补充套件，共 24 个）。
+最后更新：2026-11-23，`./scripts/verify.sh` 全绿（12/12 里程碑 + 14 个补充套件，共 26 个）。
 
 > **架构调整（2026-11-22）**：聊天界面从 Web 搬到 Qt 桌面客户端
 > （[agentlink-desktop](https://github.com/EzraX21/agentlink-desktop)，GPLv3），
@@ -52,6 +52,8 @@
 | 图片/视频预览弹窗 | ✅ | 2026-11-17 | web 单测 | 115 |
 | **视频缩略图**（服务端 ffmpeg 抽帧） | ✅ | 2026-11-18 | `run.mjs video-thumb` | 21（真上传视频 → JPEG） |
 | **MCP 补转发与置顶工具**（9 → 11） | ✅ | 2026-11-18 | `run.mjs mcp` | +13 |
+| **agent 工具权限四象限** | ✅ | 2026-11-23 | `run.mjs tool-tiers` | 83（含服务端前置授权、审计、告警） |
+| **接 LLM function-calling** | ✅ | 2026-11-23 | `run.mjs tool-llm` | 40（假 LLM 驱动） |
 | **Qt/C++ 桌面客户端** | ✅ | 2026-11-18 | 独立仓库 [agentlink-desktop](https://github.com/EzraX21/agentlink-desktop) 的 `scripts/acceptance.mjs` | 43 单测 + 6 端到端（真连服务端） |
 
 ## 六条验收标准
