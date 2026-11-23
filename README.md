@@ -1,5 +1,8 @@
 # AgentLink
 
+[![CI](https://github.com/EzraX21/agentlink/actions/workflows/ci.yml/badge.svg)](https://github.com/EzraX21/agentlink/actions/workflows/ci.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+
 一套**自研的、协议层原生为 AI Agent 设计**的即时通讯系统。不是挂在 QQ 上的协议端，
 也不是 Telegram 换后端：自研服务端 + 自研协议 + **Qt 桌面客户端**（聊天）+
 **React 管理后台**（管理页），agent 是与人类**同权**的虚拟用户。
