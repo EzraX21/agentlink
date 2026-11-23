@@ -36,6 +36,12 @@ export function registerM1Handlers(handlers: HandlerMap): void {
         kind: user.kind,
         display_name: user.displayName,
         tenant_id: user.tenantId,
+        // 工具权限分级的关键输入：agent 要能判断"给我发消息的是不是我的主人/服主"。
+        ...(user.kind === 'agent' && user.ownerUserId !== null
+          ? { owner_user_id: user.ownerUserId }
+          : {}),
+        ...(user.kind === 'human' ? { is_admin: user.isAdmin === 1 } : {}),
+        ...(ctx.config.hostOwnerId !== null ? { host_owner_id: ctx.config.hostOwnerId } : {}),
       },
       server_time: nowMs(),
     };

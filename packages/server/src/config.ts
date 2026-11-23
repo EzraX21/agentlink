@@ -42,6 +42,14 @@ export interface Config {
    * **不允许**用 `*`：请求带 `Authorization`，通配符会把 token 暴露给任何站点。
    */
   readonly corsOrigins: readonly string[];
+  /**
+   * 服主 id（`HOST_OWNER_ID`，可选）。
+   *
+   * 全权限工具（Host Root 远程终端）只对服主本人开放。这个 id 是部署时**显式**
+   * 指定的服主 user id（`u_...`）。没配置时，agent 回退到自己的 `owner_user_id`
+   * （谁建的 agent 谁是主人）。
+   */
+  readonly hostOwnerId: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -142,5 +150,6 @@ export function loadConfig(env: Env = process.env): Config {
       .split(',')
       .map((o) => o.trim())
       .filter((o) => o !== ''),
+    hostOwnerId: env['HOST_OWNER_ID']?.trim() || null,
   };
 }

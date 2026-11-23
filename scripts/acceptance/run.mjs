@@ -54,6 +54,8 @@ export const MILESTONES = [
   'split',
   // 视频缩略图（服务端 ffmpeg 抽帧）
   'video-thumb',
+  // agent 的四级工具权限（会话类型 × 发送者身份）
+  'tool-tiers',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

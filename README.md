@@ -116,7 +116,7 @@ node scripts/acceptance/run.mjs all           # 全部（含 Docker）
 每个里程碑用**独立的临时数据目录与随机端口**，脚本自己拉起服务端，跑完即清理。
 `KEEP_ACCEPTANCE_DATA=1` 可保留数据目录用于排查。
 
-**默认门禁共 24 个套件**（`./scripts/verify.sh` 全跑）：
+**默认门禁共 25 个套件**（`./scripts/verify.sh` 全跑）：
 
 | 分组 | 套件 |
 |---|---|
@@ -124,6 +124,7 @@ node scripts/acceptance/run.mjs all           # 全部（含 Docker）
 | Web 管理页 | `ui-admin` |
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
+| agent 工具权限 | `tool-tiers`（四象限：群聊/私聊 × 服主/群友） |
 | 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
 
 聊天 UI 的验收在桌面客户端仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)
@@ -143,6 +144,7 @@ packages/
 examples/
   demo.mjs     # 90 秒演示：两个真人 + agent 同群，含流式与断线补齐
   echo-agent/  # 收到 @ 就流式回显（验收 1 的演示，SDK 版）
+  host-agent/  # 按「群聊/私聊 × 服主/群友」分级挂载工具（见 docs/TOOL-TIERS.md）
   llm-agent/   # 接 OpenAI 兼容接口，流式输出
 hooks/
   example.mjs  # 服务端插件钩子示例（M11）

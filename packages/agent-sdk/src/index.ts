@@ -3,10 +3,13 @@ import {
   PROTOCOL_VERSION,
   WS_SUBPROTOCOL,
   type ContextMessage,
+  type Conversation,
   type EvtFrame,
+  type Member,
   type Message,
   type ReqFrame,
   type ResFrame,
+  type Self,
   type SubscriptionFilters,
 } from '@agentlink/protocol';
 
@@ -41,6 +44,8 @@ export interface ClientOptions {
 
 export interface MessageContext {
   readonly convId: string;
+  /** 会话类型：group=群聊，dm=私聊。工具权限分级（四象限）靠它判断。 */
+  readonly convKind: 'group' | 'dm';
   /** 消息里 @ 本 agent 的文本（已去掉 @ 前缀）。 */
   readonly text: string;
   readonly message: Message;
@@ -81,6 +86,7 @@ export class Client {
   private ready: Promise<void> | null = null;
   private selfId: string | null = null;
   private selfName: string | null = null;
+  private self: Self | null = null;
 
   constructor(private readonly opts: ClientOptions) {}
 
@@ -90,6 +96,26 @@ export class Client {
 
   get displayName(): string | null {
     return this.selfName;
+  }
+
+  /** 完整 self 信息（含 owner_user_id / is_admin / host_owner_id）。 */
+  get selfInfo(): Self | null {
+    return this.self;
+  }
+
+  /** 谁建的这个 agent（人类 user id）。工具分级里"服主回退"的依据。 */
+  get ownerUserId(): string | null {
+    return this.self?.owner_user_id ?? null;
+  }
+
+  /** 自己是不是管理员（人类）。 */
+  get isAdmin(): boolean {
+    return this.self?.is_admin === true;
+  }
+
+  /** 服主 id（HOST_OWNER_ID 显式配置，否则 null）。 */
+  get hostOwnerId(): string | null {
+    return this.self?.host_owner_id ?? null;
   }
 
   get connected(): boolean {
@@ -138,7 +164,8 @@ export class Client {
     if (!authRes.ok) {
       throw new Error(`认证失败: ${authRes.error.code} ${authRes.error.message}`);
     }
-    const self = (authRes.data as { self: { id: string; display_name: string } }).self;
+    const self = (authRes.data as { self: Self }).self;
+    this.self = self;
     this.selfId = self.id;
     this.selfName = self.display_name;
 
@@ -248,9 +275,19 @@ export class Client {
       .join('\n');
     // 去掉 @ 前缀，方便 agent 直接用
     const cleaned = text.replace(/@\S+/g, '').trim();
+
+    // 查会话类型（四象限工具分级要区分群聊/私聊）。拿不到就保守当 group。
+    let convKind: 'group' | 'dm' = 'group';
+    try {
+      const res = await this.call<{ conv: Conversation }>('conv.get', { conv_id: convId });
+      convKind = res.conv.kind;
+    } catch {
+      /* 保守：当群聊，不开放全权限 */
+    }
+
     for (const h of this.handlers) {
       try {
-        await h({ convId, text: cleaned, message, client: this });
+        await h({ convId, convKind, text: cleaned, message, client: this });
       } catch (err) {
         this.log('error', '消息处理器抛错', err);
       }
@@ -396,6 +433,11 @@ export class Client {
 
   async convList(): Promise<{ items: Array<{ id: string; title: string }> }> {
     return this.call('conv.list', { limit: 100 });
+  }
+
+  /** 取单个会话（kind + members）。工具分级、成员判断用。 */
+  async convGet(convId: string): Promise<{ conv: Conversation; members: Member[] }> {
+    return this.call('conv.get', { conv_id: convId });
   }
 
   /** 关闭连接并停止重连。 */

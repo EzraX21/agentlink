@@ -88,6 +88,18 @@ export const SelfSchema = z.object({
   kind: UserKindSchema,
   display_name: z.string(),
   tenant_id: z.string(),
+  /**
+   * 归属者（谁建的这个 agent，人类 user id）。只有 kind='agent' 才有。
+   * agent 用它判断"给我发消息的是不是我的主人"（工具权限分级的关键输入）。
+   */
+  owner_user_id: UserIdSchema.nullable().optional(),
+  /** 是否管理员（人类）。管理页准入、以及"服主回退"用。 */
+  is_admin: z.boolean().optional(),
+  /**
+   * 服主 id（部署时用 HOST_OWNER_ID 显式指定）。可选：没配置时 agent 回退到 owner_user_id。
+   * 这是"全权限工具只对服主开放"的判定依据。
+   */
+  host_owner_id: UserIdSchema.nullable().optional(),
 });
 export type Self = z.infer<typeof SelfSchema>;
 

@@ -2,7 +2,7 @@ import type { SubscriptionFilters } from '@agentlink/protocol';
 import { isPersistedEvtType, makeEvt } from '@agentlink/protocol';
 import type { Connection } from './ws/gateway.js';
 import type { Db } from './db/index.js';
-import { appendEvent, listMyConvIds } from './db/queries.js';
+import { appendEvent, findConversation, listMyConvIds } from './db/queries.js';
 import { nowMs } from './ids.js';
 
 /**
@@ -108,8 +108,15 @@ export class Hub {
     }
 
     if (f.only_mentions === true && input.type === 'message.new') {
-      const mentions = input.mentions ?? [];
-      if (!mentions.includes(state.userId)) return false;
+      // 私聊**不受** only_mentions 约束：一对一对话里没人会 @ 机器人，
+      // 按 @ 过滤等于让 agent 在私聊里永远收不到消息（"个人助理"象限直接失效）。
+      // 群聊里仍然只在被 @ 时才推 —— 这是群聊不刷屏的关键。
+      const convKind =
+        input.convId === null ? null : findConversation(this.db, input.convId)?.kind ?? null;
+      if (convKind !== 'dm') {
+        const mentions = input.mentions ?? [];
+        if (!mentions.includes(state.userId)) return false;
+      }
     }
 
     return true;
