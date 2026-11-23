@@ -193,6 +193,9 @@ importers:
       '@agentlink/agent-sdk':
         specifier: workspace:*
         version: link:../packages/agent-sdk
+      '@agentlink/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
 
   packages/agent-sdk:
     dependencies:

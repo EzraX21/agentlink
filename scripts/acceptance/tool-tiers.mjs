@@ -276,6 +276,83 @@ export async function run(ctx) {
     const q10 = await askAndCollect(bobConn.client, dmBob.id, '!exec id');
     includesText(q10, '没有挂载工具', '普通群友私聊里没有 exec');
 
+    // ---- 审计：每次工具执行都在服务端留痕 ----
+    section('10b. 审计日志：工具执行真的落到服务端');
+    const audit = await http('GET', '/api/admin/audit?limit=100', {
+      token: alice.access_token,
+    });
+    eq(audit.status, 200, '管理员能读审计日志');
+    const items = audit.body.items;
+    const toolRows = items.filter((r) => String(r.action).startsWith('tool.'));
+    ok(toolRows.length > 0, `审计里有 ${toolRows.length} 条工具执行记录`);
+
+    // exec 的记录：detail 里要有触发者、层级、参数预览
+    const execRows = toolRows.filter((r) => r.action === 'tool.exec');
+    ok(execRows.length > 0, '有 tool.exec 的记录（全权限命令留痕）');
+    const execRow = execRows[0];
+    eq(execRow.actor_id, agentId, 'actor 是 agent 自己');
+    eq(execRow.target_type, 'tool', 'target_type = tool');
+    ok(
+      typeof execRow.detail.args_preview === 'string' &&
+        execRow.detail.args_preview.includes('echo'),
+      `detail 里有命令预览（${JSON.stringify(execRow.detail.args_preview)}）`,
+    );
+    eq(execRow.detail.triggered_by, alice.user.id, 'detail 记下了触发者（alice）');
+    eq(execRow.detail.tier, 'host-root', 'detail 记下了层级 host-root');
+
+    // 沙箱的 ls 记录也在，且层级是 sandbox
+    const lsRow = toolRows.find((r) => r.action === 'tool.ls' && r.detail.tier === 'sandbox');
+    ok(lsRow !== undefined, 'tool.ls 记录带 sandbox 层级');
+
+    // 管理页的 action 下拉能筛出这些动作
+    ok(
+      (audit.body.actions ?? []).includes('tool.exec'),
+      'actions 列表里出现 tool.exec（管理页可筛选）',
+    );
+
+    // ---- 服务端是权威：不经 agent，直接伪造申请也会被拒 ----
+    section('10c. 服务端权威：越权申请被服务端拒绝');
+    // agent 连接自己去申请"帮普通群友执行 exec"
+    const forge = await agentConn.client.request('agent.tool.request', {
+      conv_id: dmBob.id,
+      tool: 'exec',
+      args_preview: 'rm -rf /',
+      triggered_by: bob.user.id,
+    });
+    eq(forge.ok, false, '普通群友触发的 exec 被服务端拒绝');
+    eq(forge.error.code, 'PERM_DENIED', '错误码是 PERM_DENIED');
+    eq(forge.error.details?.tier, 'none', '服务端判出的层级是 none');
+    eq((forge.error.details?.allowed ?? []).length, 0, 'none 层级下没有可用工具');
+
+    // 群里服主触发 exec → 也应该被拒（群里只有 sandbox）
+    const forgeGroup = await agentConn.client.request('agent.tool.request', {
+      conv_id: group.id,
+      tool: 'exec',
+      args_preview: 'id',
+      triggered_by: alice.user.id,
+    });
+    eq(forgeGroup.ok, false, '群聊里服主申请 exec 被拒（群里只有沙箱）');
+    eq(forgeGroup.error.details?.tier, 'sandbox', '服务端判出的层级是 sandbox');
+
+    // 人类客户端不能冒充 agent
+    const asHuman = await aliceConn.client.request('agent.tool.request', {
+      conv_id: group.id,
+      tool: 'ls',
+      args_preview: '/tmp',
+      triggered_by: alice.user.id,
+    });
+    eq(asHuman.ok, false, '人类账号调 agent.tool.request 被拒');
+
+    // 伪造非成员当触发者 → 也拒
+    const outsider = await mkUser(http, 'outsider', '外人');
+    const forgeOutsider = await agentConn.client.request('agent.tool.request', {
+      conv_id: group.id,
+      tool: 'ls',
+      args_preview: '/tmp',
+      triggered_by: outsider.user.id,
+    });
+    eq(forgeOutsider.ok, false, '触发者不是会话成员时被拒');
+
     // ---- HOST_OWNER_ID 显式配置：服主可以不是 agent 的创建者 ----
     section('11. HOST_OWNER_ID 显式配置：服主换成 bob');
     // 关键：先停掉旧 agent。否则服务端重启后它会**自动重连**，

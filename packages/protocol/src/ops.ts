@@ -305,6 +305,36 @@ const MessagePinReq = z.object({
 });
 const MessageUnpinReq = z.object({ conv_id: ConvIdSchema });
 
+/**
+ * agent 工具执行授权 + 审计（四象限的工具权限）。
+ *
+ * 为什么是**前置**授权而不是事后记日志：agent 进程在用户机器上，
+ * 服务端管不到它真的执行了什么。让它在执行**之前**先问服务端，
+ * 服务端按「会话类型 × 触发者是不是服主」判定并落审计 —— 拒绝时 agent 不得执行。
+ * 这样服务端才是权威，agent 里的路由逻辑只是个交互便利。
+ *
+ * `triggered_by` 是关键：不是 agent 自己，而是**让 agent 干活的那些人**。
+ * 服务端会校验它是会话成员，并据此判层级 —— 不然 agent 报一个假 id 就能提权。
+ */
+const AgentToolRequestReq = z.object({
+  conv_id: ConvIdSchema,
+  /** 工具名（`exec` / `ls` / `cat` ...）。 */
+  tool: z.string().min(1).max(64),
+  /** 参数预览（审计用，截断到 200 字符，避免把整个文件内容写进审计表）。 */
+  args_preview: z.string().max(200),
+  /** 触发这次调用的人（消息发送者）。服务端据此判"是不是服主"。 */
+  triggered_by: UserIdSchema,
+  /** 触发它的消息 id（可选，便于回溯）。 */
+  message_id: MessageIdSchema.optional(),
+});
+const AgentToolRequestRes = z.object({
+  ok: z.literal(true),
+  /** 落库的审计记录 id（agent 可回显给用户，便于对账）。 */
+  audit_id: z.string().min(1),
+  /** 判定出的层级：方便 agent 与审计核对。 */
+  tier: z.enum(['host-root', 'sandbox', 'none']),
+});
+
 const ReadSetReq = z.object({
   conv_id: ConvIdSchema,
   last_seq: z.number().int().min(0),
@@ -360,6 +390,7 @@ export const OPS = {
   'message.unpin': { req: MessageUnpinReq, res: z.object({ conv: ConversationSchema }) },
   'reaction.add': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
   'reaction.remove': { req: ReactionReq, res: z.object({ reactions: z.array(ReactionSummarySchema) }) },
+  'agent.tool.request': { req: AgentToolRequestReq, res: AgentToolRequestRes },
 } as const;
 
 export type OpName = keyof typeof OPS;

@@ -124,7 +124,7 @@ node scripts/acceptance/run.mjs all           # 全部（含 Docker）
 | Web 管理页 | `ui-admin` |
 | 协议扩展 | `ext-typing` / `ext-read` / `ext-reaction` / `ext-edit` / `ext-pin` / `ext-forward` |
 | 外部 agent 接入 | `agent-http`（HTTP+SSE）/ `mcp`（MCP server）/ `ext-large-file` |
-| agent 工具权限 | `tool-tiers`（四象限：群聊/私聊 × 服主/群友） |
+| agent 工具权限 | `tool-tiers`（四象限 + 服务端前置授权 + 审计） |
 | 部署形态 | `split`（前后端分离）/ `video-thumb`（视频缩略图） |
 
 聊天 UI 的验收在桌面客户端仓库 [`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)

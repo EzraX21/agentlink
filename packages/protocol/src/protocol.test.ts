@@ -128,9 +128,11 @@ describe('op 注册表', () => {
       'message.pin',
       'message.unpin',
       'message.forward',
+      // agent 工具权限：前置授权 + 审计（见 docs/TOOL-TIERS.md）
+      'agent.tool.request',
     ];
     expect([...OP_NAMES].sort()).toEqual([...expected].sort());
-    expect(OP_NAMES.length).toBe(32);
+    expect(OP_NAMES.length).toBe(33);
   });
 
   it('typing.send 只需要 conv_id，且常量与事件对齐', () => {

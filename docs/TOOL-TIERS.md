@@ -27,6 +27,36 @@ SDK 暴露为 `client.hostOwnerId` / `client.ownerUserId`。
 > **踩过的坑**：判定不能写成 `hostOwnerId || ownerUserId`。一旦显式配了别的人，
 > 创建者仍会被当成服主，权限并没有真正转移。验收套件第 11 节专门测这个。
 
+## 服务端是权威：前置授权 + 审计
+
+agent 进程跑在用户机器上，服务端管不到它**真的执行了什么**。所以执行顺序是：
+
+```
+agent 收到消息
+   → 算出四象限（本地，仅用于交互文案）
+   → 调 agent.tool.request {conv_id, tool, args_preview, triggered_by, message_id}
+        ↓ 服务端判定：会话类型 × triggered_by 是不是服主
+        ↓ 通过 → 落 audit_logs（action = tool.<name>）→ 返回 {audit_id, tier}
+        ↓ 拒绝 → PERM_DENIED（details 里带 tier / allowed）
+   → 拿到 ok 才真的执行；被拒就放弃，而不是"执行完再补记"
+```
+
+为什么关键：
+
+- **判定权威在服务端**：agent 本地 `route()` 算错了、被 prompt 注入改了逻辑，
+  也越不过服务端这道门。验收 10c 段直接伪造申请（普通群友触发 `exec`）会被拒。
+- **`triggered_by` 是核心字段**：报的是"谁让 agent 干活的"，不是 agent 自己。
+  服务端会校验它是会话成员 —— 否则 agent 报个假 id 就能提权。
+- **审计在主流程里**：`audit_logs` 的 `action` 是 `tool.exec` / `tool.ls` 这种粒度，
+  `detail` 里有 `conv_id` / `conv_kind` / `tier` / `triggered_by` / `host_id` /
+  `args_preview` / `message_id`。管理页「审计日志」分区可以按 action 筛出全部
+  `tool.exec`。
+
+已知限制（诚实说明）：agent 仍然可以**不调用**这个 op 而偷偷执行命令——服务端无法
+物理阻止。要真正强制，得把工具执行移到服务端（架构变更，未做）。当前设计的价值是：
+正常运行的 agent 一定会经过授权与审计，而恶意/被注入的 agent 属于"主机已失守"，
+那种情况下审计的价值是**事后取证**而不是阻止。
+
 ## 工具集
 
 ### 沙箱（群聊 · 服主）— 只读、无副作用

@@ -24,6 +24,7 @@ import { registerM5Handlers } from './ops/m5.js';
 import { registerM8Handlers } from './ops/m8.js';
 import { registerTypingHandlers } from './ops/typing.js';
 import { registerReadHandlers } from './ops/read.js';
+import { registerToolHandlers } from './ops/tools.js';
 import { registerReactionHandlers } from './ops/reactions.js';
 import { registerEditHandlers } from './ops/edit.js';
 import { registerPinHandlers } from './ops/pin.js';
@@ -124,6 +125,7 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
   // 协议扩展（docs/PROPOSAL-protocol-ext.md）：打字指示
   registerTypingHandlers(handlers);
   registerReadHandlers(handlers);
+  registerToolHandlers(handlers);
   registerReactionHandlers(handlers);
   registerEditHandlers(handlers);
   registerPinHandlers(handlers);

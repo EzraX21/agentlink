@@ -32,3 +32,46 @@ export const RATE_LIMITS = {
   search: { limit: 20, window_ms: 60_000 },
   stream_begin: { limit: 5, window_ms: 60_000 },
 } as const;
+
+// ---------------------------------------------------------------------------
+// agent 工具权限分级（四象限）
+// ---------------------------------------------------------------------------
+
+/**
+ * 工具分级的**唯一真源**。服务端按它判定，agent 按它展示 —— 不许各写一份。
+ *
+ *   群聊 + 普通群友 → 空（纯问答）
+ *   群聊 + 服主     → sandbox（只读无害）
+ *   私聊 + 普通群友 → 空（个人助理，不碰系统）
+ *   私聊 + 服主     → hostRoot（全权限）
+ */
+export const TOOL_SETS = {
+  /** 只读、无副作用。群聊里的服主、私聊里的服主都能用。 */
+  sandbox: ['whoami', 'pwd', 'uname', 'uptime', 'df', 'free', 'ps', 'ls', 'cat'] as const,
+  /** 全权限 shell。**只有私聊 + 服主**能拿到。 */
+  hostRoot: ['exec'] as const,
+} as const;
+
+export type ToolTier = 'host-root' | 'sandbox' | 'none';
+
+/**
+ * 判定某人某会话能用哪些工具。
+ *
+ * @param convKind 会话类型
+ * @param isHost   触发者是不是服主
+ */
+export function toolTierFor(convKind: 'group' | 'dm', isHost: boolean): ToolTier {
+  if (!isHost) return 'none';
+  return convKind === 'dm' ? 'host-root' : 'sandbox';
+}
+
+/** 某个层级允许的工具名集合。 */
+export function toolsForTier(tier: ToolTier): readonly string[] {
+  if (tier === 'host-root') return [...TOOL_SETS.sandbox, ...TOOL_SETS.hostRoot];
+  if (tier === 'sandbox') return TOOL_SETS.sandbox;
+  return [];
+}
+
+export function isToolAllowed(tier: ToolTier, tool: string): boolean {
+  return toolsForTier(tier).includes(tool);
+}

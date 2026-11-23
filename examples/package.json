@@ -11,6 +11,7 @@
     "host": "node host-agent/index.mjs"
   },
   "dependencies": {
-    "@agentlink/agent-sdk": "workspace:*"
+    "@agentlink/agent-sdk": "workspace:*",
+    "@agentlink/protocol": "workspace:*"
   }
 }

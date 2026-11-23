@@ -440,6 +440,33 @@ export class Client {
     return this.call('conv.get', { conv_id: convId });
   }
 
+  /**
+   * 申请执行一个工具（**执行之前**调）。
+   *
+   * 服务端按「会话类型 × triggeredBy 是不是服主」判定层级并落审计。
+   * 返回 ok 才允许真的执行；被拒时抛错（`err.code === 'PERM_DENIED'`，
+   * `err.details.allowed` 里有该层级可用的工具名）。
+   *
+   * 为什么必须先问：agent 进程在用户机器上，服务端管不到它执行了什么。
+   * 把判定放在服务端，agent 本地算错了也越不过去。
+   */
+  async requestTool(input: {
+    convId: string;
+    tool: string;
+    argsPreview?: string;
+    /** 让 agent 干活的那个人（消息发送者），不是 agent 自己。 */
+    triggeredBy: string;
+    messageId?: string;
+  }): Promise<{ audit_id: string; tier: 'host-root' | 'sandbox' | 'none' }> {
+    return this.call('agent.tool.request', {
+      conv_id: input.convId,
+      tool: input.tool,
+      args_preview: (input.argsPreview ?? '').slice(0, 200),
+      triggered_by: input.triggeredBy,
+      ...(input.messageId === undefined ? {} : { message_id: input.messageId }),
+    });
+  }
+
   /** 关闭连接并停止重连。 */
   disconnect(): void {
     this.stopped = true;

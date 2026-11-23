@@ -27,6 +27,7 @@
 import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client } from '@agentlink/agent-sdk';
+import { isToolAllowed, toolTierFor, toolsForTier } from '@agentlink/protocol';
 
 const execFileP = promisify(execFile);
 const execP = promisify(exec);
@@ -145,11 +146,17 @@ function route(ctx, client) {
   const isHost = hostId !== null && senderId === hostId;
   const isDm = ctx.convKind === 'dm';
 
-  if (isDm && isHost) {
-    return { mode: 'host-root', tools: hostTools, persona: '你是服主的全权限终端助手。' };
+  // 层级来自协议包的**唯一真源**（服务端判的也是这一份），本地只管展示与交互
+  const tier = toolTierFor(isDm ? 'dm' : 'group', isHost);
+  const all = { ...sandboxTools, ...hostTools };
+  const allowed = toolsForTier(tier);
+  const tools = Object.fromEntries(allowed.filter((t) => t in all).map((t) => [t, all[t]]));
+
+  if (tier === 'host-root') {
+    return { mode: 'host-root', tools, persona: '你是服主的全权限终端助手。' };
   }
-  if (!isDm && isHost) {
-    return { mode: 'sandbox', tools: sandboxTools, persona: '你是服主的沙箱助手，只能做只读无害操作。' };
+  if (tier === 'sandbox') {
+    return { mode: 'sandbox', tools, persona: '你是服主的沙箱助手，只能做只读无害操作。' };
   }
   if (isDm) {
     return { mode: 'assistant', tools: {}, persona: '你是个人助理，答疑、聊天、给建议。' };
@@ -190,6 +197,23 @@ function fmtExecResult(r) {
   return out || err || '(无输出)';
 }
 
+/**
+ * 先向服务端申请授权（服务端判定层级 + 落审计），通过才真的执行。
+ *
+ * 顺序不能反：先执行再上报的话，被拒的命令已经跑完了，审计只是"事后记录"。
+ * 服务端返回 PERM_DENIED 时这里抛错，调用方必须放弃执行。
+ */
+async function authorize(toolName, argv, ctx) {
+  return ctx.client.requestTool({
+    convId: ctx.convId,
+    tool: toolName,
+    argsPreview: argv.join(' '),
+    // 关键：报**触发者**，不是 agent 自己。服务端据此判是不是服主。
+    triggeredBy: ctx.message.sender.id,
+    messageId: ctx.message.id,
+  });
+}
+
 async function runTool(tool, argv) {
   const args = tool.args ?? [];
   // `shell: true` 的工具（`exec <command>`）要把剩余所有词拼成一个参数 ——
@@ -225,9 +249,16 @@ client.onMessage(async (ctx) => {
       if (/^(确认|yes|y)$/i.test(text)) {
         const command = pendingConfirm.get(ctx.convId);
         pendingConfirm.delete(ctx.convId);
-        await say(`执行：${command}\n`);
-        const r = await runTool(hostTools.exec, [command]);
-        await say(r);
+        // 确认之后仍然要走服务端授权（确认是人的护栏，授权是系统的护栏，两者都要）
+        try {
+          const granted = await authorize('exec', [command], ctx);
+          console.log(`[host-agent] 授权通过 audit=${granted.audit_id} tier=${granted.tier}`);
+          await say(`执行：${command}\n`);
+          const r = await runTool(hostTools.exec, [command]);
+          await say(r);
+        } catch (err) {
+          await say(`服务端拒绝了这次执行：${err.message}`);
+        }
       } else if (/^(取消|no|n)$/i.test(text)) {
         pendingConfirm.delete(ctx.convId);
         await say('已取消。');
@@ -258,10 +289,21 @@ client.onMessage(async (ctx) => {
           await say(`⚠️ 这条命令看起来危险：\n  ${argv.join(' ')}\n\n回复「确认」执行，或「取消」放弃。`);
         } else {
           try {
+            const granted = await authorize(toolName, argv, ctx);
+            console.log(`[host-agent] 授权通过 audit=${granted.audit_id} tier=${granted.tier}`);
             const result = await runTool(tool, argv);
             await say(result);
           } catch (err) {
-            await say(`工具执行失败：${err.message}`);
+            if (err.code === 'PERM_DENIED') {
+              const allowed = err.details?.allowed ?? [];
+              await say(
+                allowed.length === 0
+                  ? '服务端拒绝了：当前身份没有挂载任何工具。'
+                  : `服务端拒绝了这次调用：${err.message}`,
+              );
+            } else {
+              await say(`工具执行失败：${err.message}`);
+            }
           }
         }
       }

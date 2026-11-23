@@ -27,7 +27,15 @@ export interface ErrorDetailsMap {
   UNSUPPORTED_VERSION: { supported: readonly number[]; got: number };
   UNSUPPORTED_OP: { op: string };
   /** `action` 是内部动作名（如 `member.kick`）；`reason` 目前只会是 `muted`。 */
-  PERM_DENIED: { action?: string; reason?: 'muted' };
+  PERM_DENIED: {
+    action?: string;
+    reason?: 'muted';
+    /** 工具授权被拒时附带的判定结果（客户端据此显示"你能用哪些"）。 */
+    tier?: 'host-root' | 'sandbox' | 'none';
+    tool?: string;
+    conv_kind?: 'group' | 'dm';
+    allowed?: string[];
+  };
   NOT_FOUND: { what: 'conv' | 'message' | 'user' | 'attachment' };
   /** `issues` 是 Zod 的扁平错误数组。 */
   VALIDATION_FAILED: { issues: ValidationIssue[] };
