@@ -142,6 +142,7 @@ export async function run(ctx) {
       `产物里写入了**最终**服务端地址（${new URL(finalBase).host}）`,
     );
 
+    let userToken = '';
     const browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
     const errors = [];
@@ -159,6 +160,8 @@ export async function run(ctx) {
         body: JSON.stringify({ username: uname, display_name: '分离用户', password: 'split-pass-123' }),
       });
       eq(reg.status, 201, `跨域注册成功（${reg.status}）`);
+      const regBody = await reg.json();
+      userToken = regBody.access_token;
 
       await page.fill('#username', uname);
       await page.fill('#password', 'split-pass-123');
@@ -179,10 +182,10 @@ export async function run(ctx) {
       }
       ok(true, '跨域登录成功（CORS 生效）');
 
-      // WS 也要能连上（分离部署下 ws:// 指向服务端，而不是当前页面 host）。
-      // 刚登录时连接还在建立，所以要等状态徽标出现，不能立刻 count。
-      await page.waitForSelector('text=● 已连接', { timeout: 20_000 });
-      ok(true, 'WebSocket 也连上了（分离部署下 WS 走绝对地址）');
+      // 管理页确实渲染出来了（Web 现在只做管理后台，没有会话列表/聊天窗）。
+      await page.waitForSelector('text=概览', { timeout: 20_000 });
+      await page.waitForSelector('text=审计日志', { timeout: 20_000 });
+      ok(true, '管理页渲染出来了（概览 / 审计日志分区都在）');
 
       await page.screenshot({ path: path.resolve(REPO, '../.runtime/e2e-shots/16-split-client.png') });
     } finally {
@@ -191,6 +194,16 @@ export async function run(ctx) {
       staticServer.close();
     }
     eq(errors.length, 0, `浏览器无 JS 报错${errors[0] !== undefined ? `：${errors[0]}` : ''}`);
+
+    // Web 客户端不再连 WS（聊天在 Qt 桌面客户端），所以"浏览器里观察到已连接"
+    // 这条已经不存在了。WS 在分离部署下能不能用，改用协议客户端直连验：
+    // 这是客户端真正会做的事（Qt 客户端连的就是服务端的绝对 ws:// 地址）。
+    section('WS：分离部署下协议客户端能直连');
+    const wsAbsolute = ctx.baseUrl.replace(/^http/, 'ws') + '/ws';
+    const { client: wsClient, res: wsAuth } = await connectAuthed(wsAbsolute, userToken);
+    ok(wsAuth.ok === true, `WS 用绝对地址连上了（${wsAbsolute}）`);
+    expectOk(await wsClient.request('ping', {}), 'ping 通');
+    wsClient.close();
   }
 
   return summary('split');
