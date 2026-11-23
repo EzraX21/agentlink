@@ -176,6 +176,18 @@ function OverviewSection({ onError }: { onError: (m: string) => void }): React.J
           value: stats.disabledHumans + stats.disabledAgents,
           hint: `人类 ${stats.disabledHumans} / Agent ${stats.disabledAgents}`,
         },
+        // 工具权限的两个安全指标。数据来自审计表（重启不丢），
+        // 所以离线期间错过的实时告警，回来在这里能补看到。
+        {
+          label: '全权限命令（24h）',
+          value: stats.toolExec24h,
+          hint: stats.toolExec24h > 0 ? '有人在服务器上执行了 root 命令' : '近 24h 没有',
+        },
+        {
+          label: '越权尝试（24h）',
+          value: stats.toolDenied24h,
+          hint: stats.toolDenied24h > 0 ? '有人试图用没权限的工具' : '近 24h 没有',
+        },
       ];
 
   return (
@@ -834,6 +846,20 @@ function AuditSection({ onError }: { onError: (m: string) => void }): React.JSX.
             onChange={(e) => setActorId(e.target.value)}
           />
         </label>
+        <button
+          className="al-btn-ghost"
+          onClick={() => setAction('tool.exec')}
+          title="只看全权限命令执行记录"
+        >
+          仅看 exec
+        </button>
+        <button
+          className="al-btn-ghost"
+          onClick={() => setAction('tool.denied')}
+          title="只看被拒绝的工具申请（有人试探权限）"
+        >
+          仅看越权尝试
+        </button>
         <button className="al-btn-ghost" onClick={() => reload()}>
           刷新
         </button>

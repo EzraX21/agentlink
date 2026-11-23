@@ -96,6 +96,10 @@ export function adminStats(db: Db): {
   convs: number;
   messages: number;
   events: number;
+  /** 近 24 小时全权限命令执行次数（来自审计，重启不丢）。 */
+  toolExec24h: number;
+  /** 近 24 小时越权尝试次数。 */
+  toolDenied24h: number;
 } {
   const row = db.get<{
     humans: number;
@@ -106,6 +110,8 @@ export function adminStats(db: Db): {
     convs: number;
     messages: number;
     events: number;
+    tool_exec_24h: number;
+    tool_denied_24h: number;
   }>(sql`
     SELECT
       (SELECT count(*) FROM users WHERE kind = 'human') AS humans,
@@ -115,7 +121,13 @@ export function adminStats(db: Db): {
       (SELECT count(*) FROM users WHERE kind = 'human' AND disabled = 1) AS disabled_humans,
       (SELECT count(*) FROM conversations) AS convs,
       (SELECT count(*) FROM messages) AS messages,
-      (SELECT count(*) FROM events) AS events
+      (SELECT count(*) FROM events) AS events,
+      (SELECT count(*) FROM audit_logs
+         WHERE action = 'tool.exec' AND created_at >= ${Date.now() - 24 * 60 * 60 * 1000})
+        AS tool_exec_24h,
+      (SELECT count(*) FROM audit_logs
+         WHERE action = 'tool.denied' AND created_at >= ${Date.now() - 24 * 60 * 60 * 1000})
+        AS tool_denied_24h
   `);
   return {
     humans: row?.humans ?? 0,
@@ -126,6 +138,8 @@ export function adminStats(db: Db): {
     convs: row?.convs ?? 0,
     messages: row?.messages ?? 0,
     events: row?.events ?? 0,
+    toolExec24h: row?.tool_exec_24h ?? 0,
+    toolDenied24h: row?.tool_denied_24h ?? 0,
   };
 }
 

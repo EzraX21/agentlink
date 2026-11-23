@@ -407,6 +407,12 @@ export async function run(ctx) {
     );
     ok(groupDenied !== undefined, '也记录了"群聊里申请 exec"被拒（tier=sandbox）');
 
+    // 离线也能事后看到：概览接口的 24h 安全计数来自审计表（重启不丢）
+    const stats = await http('GET', '/api/admin/stats', { token: alice.access_token });
+    eq(stats.status, 200, '能读概览统计');
+    ok(stats.body.toolExec24h >= 1, `overview 全权限命令 24h 计数 = ${stats.body.toolExec24h}（≥1）`);
+    ok(stats.body.toolDenied24h >= 1, `overview 越权尝试 24h 计数 = ${stats.body.toolDenied24h}（≥1）`);
+
     // 普通群友（bob，非管理员）不该收到告警
     const bobGotAlert = bobConn.client.events.some((e) => e.type === 'tool.alert');
     eq(bobGotAlert, false, '非管理员收不到工具告警（只发给管理员）');

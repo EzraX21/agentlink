@@ -119,6 +119,8 @@ export const api = {
       convs: number;
       messages: number;
       events: number;
+      toolExec24h: number;
+      toolDenied24h: number;
     }>('GET', '/api/admin/stats'),
 
   users: () =>
