@@ -36,20 +36,62 @@ macOS 下载 `AgentLink-macos.dmg` 拖进「应用程序」。
 
 ## 1 条命令跑起来（单容器）
 
-服务端 + Web 客户端 + 数据盘，一个容器全包，一个端口对外：
+服务端 + Web 管理页 + 数据盘，一个容器全包：
 
 ```bash
-docker run -d --name agentlink -p 3000:3000 \
-  -e JWT_SECRET=$(openssl rand -hex 32) \
-  -e AGENT_TOKEN_PEPPER=$(openssl rand -hex 16) \
-  -v agentlink-data:/data \
-  ghcr.io/ezrax21/agentlink:latest
-# 浏览器打开 http://localhost:3000 —— 第一个注册的账号自动是管理员
+docker run -d --name agentlink -p 3000:3000 -v agentlink-data:/data agentlink:latest
 ```
 
-数据（SQLite + 附件）在 `agentlink-data` 卷里，容器重启不丢。
+**不用准备任何密钥**：容器第一次启动会自动生成 `JWT_SECRET` /
+`AGENT_TOKEN_PEPPER` 并写进数据卷（`/data/secrets.env`），之后每次复用。
+（直接 `node dist/index.js` 跑时仍然是"缺密钥就退出"——那个严格性保留，
+只是容器入口替你把这件事做了。）
 
-不想拉镜像也可以本地构建：`docker build -f Dockerfile.allinone -t agentlink .`。
+## 启动后在日志里看地址和账号
+
+```bash
+docker logs agentlink
+```
+
+会看到这样一段：
+
+```
+================================================================
+  AgentLink 服务端已启动
+
+  管理页： http://192.168.1.192:3000
+
+  首次启动，已自动创建管理员账号：
+    用户名： admin
+    密码：   Kt7fRm2xQpLw9Zna
+
+  登录后请立刻改密码（管理页引导的第一项就是它）。
+  这串凭据也写在了容器内：/data/initial-admin.txt
+================================================================
+```
+
+- **密码是随机生成的**（16 位，大小写+数字齐全），不是 `admin123` 这类固定值 ——
+  容器一起来端口就通，固定密码等于在用户改密码之前把管理页交给所有人。
+- 错过了日志也不要紧：`docker exec agentlink cat /data/initial-admin.txt`
+- 想自己指定：加 `-e BOOTSTRAP_ADMIN_PASSWORD=你的密码`
+- 想让日志显示正确的对外地址：加 `-e PUBLIC_URL=http://你的地址:端口`
+  （容器里枚举到的是**容器内网 IP**，宿主机访问不到，日志里也提示了这点）
+
+## 第一次进管理页会走引导
+
+登录后不是直接面对五个分区的表格，而是一个四步向导：
+
+1. **改掉初始密码**（必做，改完向导就不再弹）
+2. 创建一个 Agent（可选）
+3. 建第一个群（可选，在桌面客户端里做）
+4. 装上桌面客户端（给出服务端地址，直接可复制）
+
+每一步的状态都来自服务端真实数据（`/api/admin/setup`），不是本地记的勾 —— 
+你从别的入口做了某一步，再回来向导会认。
+
+数据（SQLite + 附件 + 密钥）都在 `agentlink-data` 卷里，容器重启不丢。
+
+不想拉镜像也可以本地构建：`docker build -f Dockerfile.allinone -t agentlink .`
 
 ## 90 秒看懂它是什么（示例）
 

@@ -63,6 +63,28 @@ export interface Config {
    * 安全日志的保留期通常比业务数据长，所以单独一个配置而不是复用 events 的 30 天。
    */
   readonly auditRetentionDays: number;
+  /**
+   * 首次启动自动创建的管理员用户名（默认 `admin`）。
+   *
+   * 为什么要有：一键启动的容器里没有任何账号，而管理页需要管理员才能进。
+   * 让用户先去注册再"碰巧成为第一个管理员"太绕，直接建好并把凭据打在启动日志里。
+   */
+  readonly bootstrapAdminUsername: string;
+  /**
+   * 首次启动管理员的密码。不设就**随机生成**（并写进日志与 /data/initial-admin.txt）。
+   *
+   * 不默认给一个固定密码（如 admin123）是因为：容器一起来端口就暴露，
+   * 固定密码等于在用户改密码之前把管理页交给所有人。
+   */
+  readonly bootstrapAdminPassword: string | null;
+  /**
+   * 对外访问地址（`PUBLIC_URL`，如 `https://chat.example.com`）。
+   *
+   * 启动日志里要告诉用户"管理页在哪"。容器内部看不到宿主机的对外地址，
+   * 所以要么显式给，要么由服务端枚举本机网卡地址猜一个（可能不准，但比只报
+   * 127.0.0.1 有用）。
+   */
+  readonly publicUrl: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -180,5 +202,8 @@ export function loadConfig(env: Env = process.env): Config {
       .map((o) => o.trim())
       .filter((o) => o !== ''),
     auditRetentionDays: optionalInt0(env, 'AUDIT_RETENTION_DAYS', 180),
+    bootstrapAdminUsername: env['BOOTSTRAP_ADMIN_USERNAME']?.trim() || 'admin',
+    bootstrapAdminPassword: env['BOOTSTRAP_ADMIN_PASSWORD']?.trim() || null,
+    publicUrl: env['PUBLIC_URL']?.trim() || null,
   };
 }

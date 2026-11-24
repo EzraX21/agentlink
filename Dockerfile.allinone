@@ -89,6 +89,10 @@ COPY --from=build /app/packages/server/drizzle ./packages/server/drizzle
 COPY --from=build /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=build /app/packages/web/dist ./packages/web/dist
 
+# 入口：容器里没给 JWT_SECRET 时自动生成并持久化到 /data（见脚本注释）
+COPY docker/entrypoint.sh /usr/local/bin/agentlink-entrypoint
+RUN chmod 0755 /usr/local/bin/agentlink-entrypoint
+
 # 数据卷：SQLite 与附件都在这里，重启不丢
 RUN mkdir -p /data/uploads
 
@@ -104,4 +108,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>r.json()).then(j=>process.exit(j.ok===true?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["/usr/local/bin/agentlink-entrypoint"]
 CMD ["node", "packages/server/dist/index.js"]

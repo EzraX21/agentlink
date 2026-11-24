@@ -18,10 +18,11 @@ import {
   listHumans,
   setUserAdmin,
   setUserDisabled,
+  updateUserPassword,
 } from '../db/queries.js';
 import { newId, nowMs } from '../ids.js';
 import { insertAudit } from '../db/queries.js';
-import { hashPassword } from '../auth/crypto.js';
+import { hashPassword, verifyPassword } from '../auth/crypto.js';
 import { toUserSummary } from '../services/conversations.js';
 import { sendError } from './errors.js';
 
@@ -53,6 +54,11 @@ const RegisterBody = z.object({
   username: z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/, '只允许字母数字与 _ . -'),
   display_name: z.string().min(1).max(64),
   password: z.string().min(8).max(200),
+});
+
+const ChangePasswordBody = z.object({
+  old_password: z.string().min(1).max(200),
+  new_password: z.string().min(8).max(200),
 });
 
 const CreateAgentBody = z.object({
@@ -162,6 +168,91 @@ export async function authRoutes(app: FastifyInstance, services: AppServices): P
         username: user.username,
         // 前端据此决定要不要显示"管理"入口；真正的准入在服务端强制
         is_admin: user.isAdmin === 1,
+      });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  /**
+   * 改自己的密码。
+   *
+   * 首次启动自动建的管理员用的是随机密码（在启动日志里），所以"改密码"
+   * 是引导向导的第一步 —— 这条接口就是给它用的。
+   *
+   * 要求旧密码：光有 token 就允许改密码，等于 token 泄露即可永久接管账号。
+   */
+  app.post('/api/auth/password', async (req, reply) => {
+    try {
+      const who = await requireUser(services, req.headers);
+      const body = parseBody(ChangePasswordBody, req.body);
+      const user = findUserById(services.dbc.db, who.userId);
+      if (!user) throw new AgentLinkError('AUTH_INVALID', '账号不存在');
+      if (user.kind !== 'human') {
+        throw new AgentLinkError('PERM_DENIED', 'agent 不能改密码', { action: 'auth.password' });
+      }
+
+      // agent 的 passwordHash 是 null（它们用 token 认证），前面已经挡掉；
+      // 这里再断言一次是为了让类型收敛，而不是靠"我确定"。
+      if (user.passwordHash === null) {
+        throw new AgentLinkError('AUTH_INVALID', '这个账号没有密码');
+      }
+      const ok = await verifyPassword(user.passwordHash, body.old_password);
+      if (!ok) {
+        throw new AgentLinkError('AUTH_INVALID', '旧密码不正确');
+      }
+      if (body.old_password === body.new_password) {
+        throw new AgentLinkError('VALIDATION_FAILED', '新密码不能与旧密码相同', {
+          issues: [{ path: 'new_password', message: '必须与旧密码不同' }],
+        });
+      }
+
+      updateUserPassword(services.dbc.db, user.id, await hashPassword(body.new_password));
+      insertAudit(services.dbc.db, {
+        id: newId('e'),
+        tenantId: 'default',
+        actorId: user.id,
+        action: 'user.password.change',
+        targetType: 'user',
+        targetId: user.id,
+        detail: '{}',
+        createdAt: nowMs(),
+      });
+      return reply.send({ ok: true });
+    } catch (err) {
+      return sendError(reply, err);
+    }
+  });
+
+  /**
+   * 首次使用的引导状态。
+   *
+   * 前端拿它决定要不要弹向导。每一项都是"去查已有的真实状态"，不是
+   * 单独存一份引导标记 —— 存标记会跟真实状态漂移（用户从别的入口做了
+   * 某一步，标记还说他没做）。
+   */
+  app.get('/api/admin/setup', async (req, reply) => {
+    try {
+      await requireHumanAdmin(services, req.headers);
+      const db = services.dbc.db;
+      const stats = adminStats(db);
+      // 改过密码 = 审计里有这条记录。启动时自动建的账号还没这条。
+      const passwordChanged = listAuditFiltered(db, {
+        tenantId: 'default',
+        limit: 500,
+        action: 'user.password.change',
+      }).length > 0;
+
+      const steps = {
+        password_changed: passwordChanged,
+        has_agent: stats.agents > 0,
+        has_group: stats.convs > 0,
+      };
+      return reply.send({
+        // 引导只在"还没做过任何一步"时弹。做过一步就不再打扰 ——
+        // 否则每次进管理页都被向导挡一下，很烦。
+        first_run: !passwordChanged && !steps.has_agent && !steps.has_group,
+        steps,
       });
     } catch (err) {
       return sendError(reply, err);

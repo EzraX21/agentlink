@@ -58,6 +58,8 @@ export const MILESTONES = [
   'tool-tiers',
   // 同一套权限接到真 LLM 的 function-calling（用假 LLM 驱动，结果确定）
   'tool-llm',
+  // 一键启动 → 日志给地址与凭据 → 首登引导（自己管容器，不需要 harness 起服务端）
+  'first-run',
 ];
 
 /** 需要起服务端的里程碑（m0 有一部分只检查静态产物）。 */

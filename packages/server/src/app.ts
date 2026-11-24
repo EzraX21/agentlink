@@ -1,5 +1,7 @@
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { Server } from 'node:http';
+import { networkInterfaces } from 'node:os';
+import { bootstrapAdmin } from './services/bootstrap.js';
 import type { ReqFrame } from '@agentlink/protocol';
 import type { Config } from './config.js';
 import { loggerOptions } from './logger.js';
@@ -214,6 +216,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   gateway.attach(app.server);
 
+  // 首次启动：库里没有人类账号时自动建管理员，并把凭据打在日志里。
+  // 一键启动的容器全靠这个 —— 否则用户面对一个空库不知道该拿什么账号进管理页。
+  const boot = await bootstrapAdmin(dbc.db, config);
+  logAccessBanner(app, config, boot);
+
   // events 只留 30 天（数据模型 §6.3），每 10 分钟清一次
   const stopCleanup = startEventsCleanup(dbc.db, app.log);
   // 审计日志保留期清理（安全日志通常要比业务事件留得更久，所以是独立配置）
@@ -235,3 +242,64 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 }
 
 export { validateData };
+
+/**
+ * 把"管理页在哪、用什么账号进"打进启动日志。
+ *
+ * 容器场景下这是唯一可靠的告知渠道：用户 `docker logs` 就能看到，
+ * 不用翻文档猜端口，也不用先注册一个账号再"碰巧"成为管理员。
+ */
+function logAccessBanner(
+  app: FastifyInstance,
+  config: Config,
+  boot: Awaited<ReturnType<typeof bootstrapAdmin>>,
+): void {
+  // 对外地址优先用显式配置；没有就枚举非回环网卡 —— 容器里看不到宿主的
+  // 公网/局域网地址，猜出来的可能不准，但比只报 127.0.0.1 有用得多。
+  const urls: string[] = [];
+  if (config.publicUrl !== null) {
+    urls.push(config.publicUrl.replace(/\/$/, ''));
+  } else {
+    const port = config.port === 80 || config.port === 443 ? '' : `:${config.port}`;
+    for (const list of Object.values(networkInterfaces())) {
+      for (const net of list ?? []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          urls.push(`http://${net.address}${port}`);
+        }
+      }
+    }
+    if (urls.length === 0) urls.push(`http://127.0.0.1${port}`);
+  }
+
+  const lines = ['', '='.repeat(64), '  AgentLink 服务端已启动', ''];
+  for (const u of urls) lines.push(`  管理页： ${u}`);
+  // 容器里枚举到的是**容器内网地址**（172.17.x.x），宿主机与局域网都访问不到。
+  // 不解释一下的话，用户照着日志里那个地址去浏览器打，必然失败。
+  if (config.publicUrl === null) {
+    lines.push(
+      '',
+      '  注：若在 Docker 里运行，上面是容器内网地址，宿主/局域网请用',
+      '      映射到宿主机的地址（如 http://<本机IP>:<映射端口>）。',
+      '      想让它显示正确地址，启动时加 -e PUBLIC_URL=http://你的地址:端口',
+    );
+  }
+
+  if (boot.created) {
+    lines.push(
+      '',
+      '  首次启动，已自动创建管理员账号：',
+      `    用户名： ${boot.username ?? ''}`,
+      `    密码：   ${boot.password ?? ''}`,
+      '',
+      '  登录后请立刻改密码（管理页引导的第一项就是它）。',
+    );
+    if (boot.credentialsPath !== null) {
+      lines.push(`  这串凭据也写在了容器内：${boot.credentialsPath}`);
+    }
+  } else {
+    lines.push('', '  管理员账号已存在（首次启动时创建，凭据见数据目录 initial-admin.txt）。');
+  }
+
+  lines.push('', '='.repeat(64), '');
+  for (const line of lines) app.log.info(line);
+}
