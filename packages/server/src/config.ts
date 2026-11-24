@@ -69,6 +69,19 @@ export interface Config {
    * 为什么要有：一键启动的容器里没有任何账号，而管理页需要管理员才能进。
    * 让用户先去注册再"碰巧成为第一个管理员"太绕，直接建好并把凭据打在启动日志里。
    */
+  /**
+   * 是否在启动时自动建管理员（`BOOTSTRAP_ADMIN`）。
+   *
+   * 默认**关**：直接 `node dist/index.js` 时保留原行为 ——
+   * "第一个注册的账号自动成为管理员"。
+   *
+   * 容器镜像的入口会把它设成 1：一键启动的场景里没人会去注册
+   * "第一个账号"，必须自动建好并把凭据打进日志。
+   *
+   * 为什么不能无脑开着：开着的话库里永远有账号，那条
+   * "第一个注册用户成为管理员"的规则就再也不触发了（验收里真的挂过）。
+   */
+  readonly bootstrapAdmin: boolean;
   readonly bootstrapAdminUsername: string;
   /**
    * 首次启动管理员的密码。不设就**随机生成**（并写进日志与 /data/initial-admin.txt）。
@@ -202,6 +215,7 @@ export function loadConfig(env: Env = process.env): Config {
       .map((o) => o.trim())
       .filter((o) => o !== ''),
     auditRetentionDays: optionalInt0(env, 'AUDIT_RETENTION_DAYS', 180),
+    bootstrapAdmin: bool(env, 'BOOTSTRAP_ADMIN', false),
     bootstrapAdminUsername: env['BOOTSTRAP_ADMIN_USERNAME']?.trim() || 'admin',
     bootstrapAdminPassword: env['BOOTSTRAP_ADMIN_PASSWORD']?.trim() || null,
     publicUrl: env['PUBLIC_URL']?.trim() || null,

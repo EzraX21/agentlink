@@ -216,9 +216,11 @@ export async function buildApp(opts: AppOptions): Promise<BuiltApp> {
 
   gateway.attach(app.server);
 
-  // 首次启动：库里没有人类账号时自动建管理员，并把凭据打在日志里。
-  // 一键启动的容器全靠这个 —— 否则用户面对一个空库不知道该拿什么账号进管理页。
-  const boot = await bootstrapAdmin(dbc.db, config);
+  // 首次启动自动建管理员（仅当配置开启；容器入口会开，直接跑 node 不开，
+  // 以保留"第一个注册用户成为管理员"那条原有规则）。
+  const boot = config.bootstrapAdmin
+    ? await bootstrapAdmin(dbc.db, config)
+    : { created: false, username: null, password: null, credentialsPath: null };
   logAccessBanner(app, config, boot);
 
   // events 只留 30 天（数据模型 §6.3），每 10 分钟清一次
@@ -296,8 +298,11 @@ function logAccessBanner(
     if (boot.credentialsPath !== null) {
       lines.push(`  这串凭据也写在了容器内：${boot.credentialsPath}`);
     }
-  } else {
+  } else if (config.bootstrapAdmin) {
     lines.push('', '  管理员账号已存在（首次启动时创建，凭据见数据目录 initial-admin.txt）。');
+  } else {
+    // 没开自动引导（直接 node 跑的开发场景）：提一句怎么进管理页
+    lines.push('', '  还没有管理员：第一个注册的账号会自动成为管理员。');
   }
 
   lines.push('', '='.repeat(64), '');

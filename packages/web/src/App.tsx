@@ -4,6 +4,7 @@ import { LoginView } from './components/LoginView.js';
 import { SetupWizard } from './components/SetupWizard.js';
 import { clearTokens, loadTokens } from './lib/client.js';
 import { apiUrl } from './lib/endpoint.js';
+import { navigate, useRoute } from './lib/router.js';
 
 /**
  * AgentLink 的 Web 端：**只**是管理后台。
@@ -24,6 +25,17 @@ export function App(): React.JSX.Element {
   const [selfId, setSelfId] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [setup, setSetup] = useState<SetupState | null>(null);
+  // 管理页的分区来自 hash 路由（#/admin/users 这种）。
+  // 之前这里写死 section="overview"，点了侧栏也没反应 —— 因为 AdminPage
+  // 导航是改 hash，而 App 根本没读 hash。
+  const route = useRoute();
+
+  // Web 端没有聊天页，`#/` 是个无效路径（老书签/登录后落地）。
+  // 登录态就绪时把它挪到 `#/admin`，否则侧栏点任何一个分区都会先回到概览。
+  useEffect(() => {
+    if (!authed) return;
+    if (!window.location.hash.startsWith('#/admin')) navigate('#/admin');
+  }, [authed]);
   // 用户点过"跳过/进入管理页"之后不再弹向导（本次会话内）
   const [setupDismissed, setSetupDismissed] = useState(false);
 
@@ -97,7 +109,7 @@ export function App(): React.JSX.Element {
     <AdminPage
       selfId={selfId}
       isAdmin={isAdmin}
-      section="overview"
+      section={route.name === 'admin' ? route.section : 'overview'}
       onBack={logout}
     />
   );

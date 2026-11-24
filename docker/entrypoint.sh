@@ -39,5 +39,10 @@ EOF
   export JWT_SECRET AGENT_TOKEN_PEPPER
 fi
 
+# 容器场景默认开"自动建管理员"：一键启动时没人会去注册"第一个账号"，
+# 而管理页需要管理员才能进。直接 `node dist/index.js` 跑时这个默认是关的，
+# 以保留"第一个注册用户成为管理员"那条原有规则。
+export BOOTSTRAP_ADMIN="${BOOTSTRAP_ADMIN:-1}"
+
 # 交给服务端进程（exec 保证信号能直达，docker stop 才会优雅退出）
 exec "$@"

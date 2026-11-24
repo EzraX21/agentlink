@@ -27,6 +27,75 @@ async function register(http, username, displayName) {
   return res.body;
 }
 
+/**
+ * 用真 Chromium 点侧栏导航，断言 URL 与内容都跟着变。
+ *
+ * 单独写成函数是因为它要 defer import playwright（只有这个套件用到）。
+ */
+async function checkNavigation(repoRoot, baseUrl, adminUsername) {
+  if (process.env['PLAYWRIGHT_BROWSERS_PATH'] === undefined) {
+    process.env['PLAYWRIGHT_BROWSERS_PATH'] = path.resolve(repoRoot, '../.runtime/pw-browsers');
+  }
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright-core'));
+  } catch (err) {
+    ok(false, `playwright-core 不可用：${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
+
+  // 管理页用的是相对 API 地址（同源部署），所以由服务端托管 dist/ 后再打开
+  const base = baseUrl;
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  try {
+    await page.goto(base, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#username', { timeout: 20_000 });
+
+    // 用真实凭据登录
+    await page.fill('#username', adminUsername);
+    await page.fill('#password', 'admin-page-pass-123');
+    await page.click('button[type=submit]');
+    await page.waitForSelector('text=概览', { timeout: 25_000 });
+    ok(true, '登录后进了管理页');
+
+    // 登录后 hash 应该是 #/admin（否则点侧栏会先弹回概览）
+    const hashAfterLogin = await page.evaluate(() => window.location.hash);
+    ok(hashAfterLogin.startsWith('#/admin'), `登录后 hash = ${hashAfterLogin}`);
+
+    // 逐个点五个分区，断言 hash 变了**并且**对应内容渲染了
+    const sections = [
+      { label: '账号', hash: '#/admin/users', expect: '新建人类账号' },
+      { label: 'Agent', hash: '#/admin/agents', expect: '新建 Agent' },
+      { label: '群组', hash: '#/admin/groups', expect: '成员管理' },
+      { label: '审计日志', hash: '#/admin/audit', expect: '动作' },
+      { label: '概览', hash: '#/admin', expect: '人类账号' },
+    ];
+    for (const s of sections) {
+      // 用链接的**精确**文本定位。`text=Agent` 会匹配到「新建 Agent」等
+      // 十几个含该词的元素（Playwright 会点第一个，往往不是导航），
+      // 这条断言因此假红过一次。
+      await page.getByRole('link', { name: s.label, exact: true }).click();
+      await page.waitForTimeout(350);
+      const h = await page.evaluate(() => window.location.hash);
+      eq(h, s.hash, `点「${s.label}」→ hash 变成 ${s.hash}`);
+      const visible = await page.locator(`text=${s.expect}`).first().isVisible().catch(() => false);
+      ok(visible, `点「${s.label}」→ 渲染出「${s.expect}」`);
+    }
+
+    eq(errors.length, 0, `浏览器无 JS 报错${errors[0] !== undefined ? `：${errors[0]}` : ''}`);
+  } catch (err) {
+    ok(false, `导航测试抛异常：${err instanceof Error ? err.message : String(err)}`);
+    const body = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => '');
+    console.log('    页面内容:', JSON.stringify(body));
+  } finally {
+    await page.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
+  }
+}
+
 export async function run(ctx) {
   const { http, wsUrl, repoRoot } = ctx;
 
@@ -316,6 +385,21 @@ export async function run(ctx) {
   const testSrc = await readFile(`${repoRoot}/packages/web/src/pages/AdminPage.test.tsx`, 'utf8');
   includes(testSrc, 'isAdmin={false}', '有非管理员的渲染测试');
   includes(testSrc, 'isAdmin', '有管理员的渲染测试');
+
+  // 静态检查再怎么写也发现不了"点了没反应"——
+  // 之前 App 把 section 写死成 'overview'，侧栏导航改 hash 但没人读，
+  // 五个分区全部点不动，而上面所有 includes() 断言照样全绿。
+  // 所以这里必须真开浏览器点一遍。
+  section('B2. 真浏览器：五个分区真的能点（这条抓"点了没反应"）');
+  // 管理页是相对路径请求 API 的，所以要让服务端把 dist/ 托管起来（同源），
+  // 否则打开的是 404 页面，导航无从点起。
+  const webDist = path.join(repoRoot, 'packages/web/dist');
+  const distExists = await stat(path.join(webDist, 'index.html')).then(() => true).catch(() => false);
+  ok(distExists, 'packages/web/dist/index.html 存在（先 pnpm --filter @agentlink/web build）');
+  if (distExists) {
+    const h = await ctx.restartServer({ PUBLIC_DIR: webDist });
+    await checkNavigation(repoRoot, h.baseUrl, 'alice');
+  }
 
   a.close();
   b.close();
