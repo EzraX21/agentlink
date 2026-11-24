@@ -12,11 +12,27 @@
 - 实现计划：[`docs/04-实现计划.md`](docs/04-实现计划.md)
 - 施工守则：[`docs/05-施工守则.md`](docs/05-施工守则.md)
 - 桌面客户端：[`EzraX21/agentlink-desktop`](https://github.com/EzraX21/agentlink-desktop)（Qt/C++，独立仓库）
+  —— 从 [Releases](https://github.com/EzraX21/agentlink-desktop/releases) 直接下安装包
 - 需求来源：[`需求确认书.md`](需求确认书.md)
 - 实现决策记录：[`docs/DECISIONS.md`](docs/DECISIONS.md)
 - 里程碑进度：[`docs/PROGRESS.md`](docs/PROGRESS.md)
 
 ---
+
+## 客户端在哪下
+
+聊天界面在 **Qt 桌面客户端**里（Web 只做管理后台）。装好后第一次启动会让你填服务端地址：
+
+```bash
+# Linux
+sudo apt install ./agentlink-desktop_1.0.0_amd64.deb     # Debian / Ubuntu
+chmod +x AgentLink-x86_64.AppImage && ./AgentLink-x86_64.AppImage   # 任意发行版
+```
+
+Windows 下载 `AgentLink-windows-x64.zip` 解压双击（免安装）；
+macOS 下载 `AgentLink-macos.dmg` 拖进「应用程序」。
+
+全部产物：<https://github.com/EzraX21/agentlink-desktop/releases>
 
 ## 1 条命令跑起来（单容器）
 
